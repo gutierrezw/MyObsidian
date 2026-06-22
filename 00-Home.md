@@ -13,6 +13,7 @@
 | [[30-Gestion/BACKLOG\|BACKLOG]] | Tareas pendientes y prioridades |
 | [[30-Gestion/Sesiones\|Sesiones]] | Notas por sesión de trabajo |
 | [[30-Gestion/Dashboard\|Dashboard Dataview]] | Vistas dinámicas: sesiones, decisiones, memoria |
+| [[30-Gestion/Skills\|Skills y Agentes]] | Slash commands disponibles y cuándo usarlos |
 
 ## Docs clave
 
