@@ -11,8 +11,7 @@
 | [[10-Memoria/MEMORY\|Memoria Claude]] | Índice de toda la memoria entre sesiones |
 | **Docs de diseño** (abajo) | Todos los docs de arquitectura, spec y diseño |
 | [[30-Gestion/BACKLOG\|BACKLOG]] | Tareas pendientes y prioridades |
-| [[30-Gestion/Sesiones\|Sesiones]] | Notas por sesión de trabajo |
-| [[30-Gestion/Dashboard\|Dashboard Dataview]] | Vistas dinámicas: sesiones, decisiones, memoria |
+| [[30-Gestion/Dashboard\|Dashboard Dataview]] | Vistas dinámicas: decisiones, memoria |
 | [[30-Gestion/Skills\|Skills y Agentes]] | Slash commands disponibles y cuándo usarlos |
 
 ## Docs clave
@@ -95,7 +94,6 @@ AgentManager      → Infraestructura lenta (EDGAR 13F, NASDAQ)
 |---------|-------------|
 | [CLAUDE.md](file:///C:/Users/InversionesWildaga/Documents/MyPython/AppOO/CLAUDE.md) | Instrucciones del proyecto — convenciones, checklist inicio/cierre |
 | [CLAUDE.md global](file:///C:/Users/InversionesWildaga/.claude/CLAUDE.md) | Convenciones Python globales |
-| [[30-Gestion/Sesiones\|Sesiones]] | Historial de sesiones de co-work |
 
 ## Links útiles
 
