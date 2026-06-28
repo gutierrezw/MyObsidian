@@ -14,6 +14,9 @@ Historial de versiones al final del archivo.
 
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
+| 59 | **Infraestructura** | `server-api` Fase 1 — Node.js standalone: Express + mysql2 + auth API key + rate limit. Endpoints `/db/portfolio`, `/db/market`, `/db/consenso`, `/db/query` (SELECT whitelist). PM2 + Cloudflare Tunnel. Panel control en System tab (●Online, Restart/Stop). Diseño: [[design-api-server]] | Alta |
+| 60 | **Infraestructura** | `server-api` Fase 2 — Migrar BrowserBridge Python → Node. AppOO empuja datos via `POST /internal/update`. Nuevos endpoints `/tv/*`. Deprecar `Class_BrowserBridge.py` y puerto 5050. | Media |
+| 61 | **Infraestructura** | `server-api` Fase 3 — MCP server en Node.js (SDK oficial Anthropic). Tools: `query_portfolio`, `get_consenso`, `execute_order`, `get_agent_status`. Audit log por tool call. Reemplaza ítem 20. | Media |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
 | 22 | **Auto-Remediación** | UI tab System: panel "Fallos & Métricas" — treeview fallos + resumen calidad + desempeño BD | Media |
@@ -31,6 +34,7 @@ Historial de versiones al final del archivo.
 | 56 | **Stock/Oportunidades** | Re-entry Scanner — detectar ex-activos con condiciones mejores que la entrada original: ROI histórico > 0 + consenso favorable + precio actual < avgcost histórico. `get_reentry_candidates()` en `PlanInversion` + `Agente_ReentryScanner` @24h → `DataHub.system_alerts`. Diseño en `Doc/reentry_scanner_design.md`. | Media |
 | 57 | **IA/Plan** | **"Riesgos del Plan"** — panel UI editable para los parámetros de la misión del agente: meta capital (hoy $1.2M/2030), objetivo ingresos pasivos (hoy 3%), escalado de objetivo (ej: revisar a 4% cuando portafolio ≥ $800K), leverage máximo tolerado, pérdida máxima aceptable. Hoy estos valores están hardcodeados en el prompt. Pasar a `llave_privada.agente_ia.plan` → editable desde UI sin reiniciar app. Segunda sección "Riesgos del Plan": concentración máxima por sector/región, criterios de salida de emergencia. | Media |
 | 58 | **Infraestructura/IB** | Migrar `Class_Ibrks.py` legacy a librería oficial de IB — intento anterior revertido por complejidad. Arrancar en rama separada, validar con `AppTest/run_ib_websocket.py` antes de tocar main. La reconexión automática (`_tickle_loop`) debe quedar igual que hoy. | Baja |
+| 62 | **Infraestructura** | Mantenimiento versiones Node.js — definir proceso equivalente a Python: evaluar `nvm-windows` como gestor de versiones, documentar versión mínima requerida por `server-api`, validar PM2 + dependencias npm tras cada upgrade. Ref: [[ref-instalacion]] | Baja |
 
 ---
 

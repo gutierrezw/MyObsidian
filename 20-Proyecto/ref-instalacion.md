@@ -18,6 +18,31 @@ Software base:
 	tsw: https://www.interactivebrokers.co.uk/es/trading/ib-api.php
 	git: https://git-scm.com/downloads/win
 	clientportal.gw:  https://www.interactivebrokers.com/es/trading/ib-api.php
+
+Node.js — uso en el proyecto:
+	Node se usa exclusivamente para server-api: proxy HTTP autenticado sobre MySQL,
+	bridge TradingView (Fase 2), y MCP server para el agente autónomo (Fase 3).
+	No reemplaza Python — conviven: Python corre la app Tkinter, Node corre el servidor.
+	Versión activa: v24.13.1 / npm 11.8.0 (verificado 2026-06-28)
+	Proceso gestionado por PM2 (auto-start, auto-restart, logs integrados).
+	Diseño completo: ver [[design-api-server]]
+
+	Comandos Node útiles:
+		node --version              <- verificar versión instalada
+		npm install                 <- instalar dependencias (equivalente a pip install -r)
+		npm install -g pm2          <- instalar PM2 globalmente
+		pm2 start ecosystem.config.js
+		pm2 list                    <- ver procesos activos
+		pm2 logs server-api         <- ver logs en tiempo real
+		pm2 restart server-api
+		pm2 stop server-api
+
+	PENDIENTE — mantenimiento de versiones Node (BACKLOG #62):
+		Al igual que Python, definir proceso de actualización controlada de Node:
+		- evaluar nvm-windows como gestor de versiones (permite tener v18/v20/v24 en paralelo)
+		- o winget upgrade OpenJS.NodeJS para actualizaciones simples
+		- documentar versión mínima requerida por server-api
+		- validar PM2 + dependencias npm tras cada upgrade
 		
 
 Excepciones:
