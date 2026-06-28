@@ -190,17 +190,18 @@ Ubicacion del script:
 	C:\Users\InversionesWildaga\Documents\MyNode\mysql-weekly-report\report.js
 
 Que hace:
-	1. Llama a GET http://localhost:8050/db/diagnostics (server-api, requiere x-api-key)
+	1. Conecta DIRECTO a MySQL (mysql2/promise) usando credenciales de
+	   Documents\Claude-Cowork-Scripts\mysql_config.json (bloque "db")
+	   — no depende de que server-api esté corriendo.
 	2. Construye HTML con: tablas por tamaño, índices sin uso, queries con full scan, buffer pool
 	3. Guarda la salida en .\output\reporte-YYYYMMDD.html y .\output\reporte_ultimo.html
 	   (NO envía email — solo deja el documento para revisión manual)
 	4. Si algo falla, escribe el error en .\output\ y registra log en .\logs\
 
-Endpoint nuevo en server-api:
-	GET /db/diagnostics  (routes/db.js) — solo lectura, queries fijas sobre
-	information_schema / performance_schema. No usa ALLOWED_TABLES (es un endpoint
-	separado del /db/query genérico, no lo modifica).
-	IMPORTANTE: tras este cambio hace falta "pm2 restart server-api" para recargarlo.
+Endpoint /db/diagnostics en server-api (routes/db.js):
+	Se agregó igual (solo lectura, mismas queries, no usa ALLOWED_TABLES), queda disponible
+	para consultas remotas vía HTTP si en el futuro se necesita, pero el script local
+	report.js NO lo usa — va directo a MySQL porque corren en el mismo equipo.
 
 Programacion automatica (Task Scheduler):
 	Nombre tarea: "Reporte Semanal MySQL"
