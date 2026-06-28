@@ -27,15 +27,60 @@ Node.js — uso en el proyecto:
 	Proceso gestionado por PM2 (auto-start, auto-restart, logs integrados).
 	Diseño completo: ver [[design-api-server]]
 
-	Comandos Node útiles:
-		node --version              <- verificar versión instalada
-		npm install                 <- instalar dependencias (equivalente a pip install -r)
-		npm install -g pm2          <- instalar PM2 globalmente
+	Repo: Documents\MyNode\  (separado de MyPython — código Node puro)
+	Credenciales: Documents\Claude-Cowork-Scripts\mysql_config.json  (fuera del repo, nunca commiteado)
+
+==================================================================================
+INSTALACION server-api (Fase 1) — pasos completos
+==================================================================================
+
+	Qué es:
+		Servidor Node.js standalone que actúa como proxy HTTP autenticado sobre MySQL.
+		Permite que co-working y el agente autónomo consulten la BD sin exponer el puerto 3306.
+		Corre en puerto 8050, independiente de AppOO Tkinter.
+
+	Paso 1 — Clonar / ubicar el código
+		Carpeta: C:\Users\InversionesWildaga\Documents\MyNode\server-api\
+		Branch:  server-api-fase1
+
+	Paso 2 — Crear el archivo de configuración (NUNCA commitear)
+		Ubicación: C:\Users\InversionesWildaga\Documents\Claude-Cowork-Scripts\mysql_config.json
+		Copiar desde config.example.json y completar:
+		{
+		  "api_key": "<generar con comando abajo>",
+		  "port": 8050,
+		  "db": { "host": "localhost", "port": 3306, "user": "root", "password": "...", "database": "bdinv" }
+		}
+
+		Generar API key (PowerShell):
+		$bytes = New-Object byte[] 32
+		[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+		[System.Convert]::ToBase64String($bytes)
+
+	Paso 3 — Instalar dependencias
+		cd C:\Users\InversionesWildaga\Documents\MyNode\server-api
+		npm install
+
+	Paso 4 — Instalar PM2 globalmente
+		npm install -g pm2
+
+	Paso 5 — Levantar el servidor con PM2
 		pm2 start ecosystem.config.js
-		pm2 list                    <- ver procesos activos
-		pm2 logs server-api         <- ver logs en tiempo real
-		pm2 restart server-api
-		pm2 stop server-api
+		pm2 list   <- verificar status "online"
+
+	Paso 6 — Configurar auto-start con Windows (ejecutar como Administrador)
+		npx pm2-windows-startup install
+		pm2 save
+
+	Verificación final:
+		curl http://localhost:8050/health
+		-> { "status": "ok", "version": "1.0.0", "uptime": ... }
+
+	Comandos del día a día:
+		pm2 list                  <- estado actual
+		pm2 logs server-api       <- logs en tiempo real
+		pm2 restart server-api    <- reiniciar
+		pm2 stop server-api       <- detener
 
 	PENDIENTE — mantenimiento de versiones Node (BACKLOG #62):
 		Al igual que Python, definir proceso de actualización controlada de Node:
