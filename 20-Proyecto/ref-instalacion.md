@@ -174,3 +174,45 @@ Pendiente activar (cuando se configuren MCPs en VS Code):
 	Ruta config MCP: %APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings
 	Destino: G:\Mi unidad\Backup\VSCode-MCP\YYYYMMDD\
 
+
+==================================================================================
+REPORTE SEMANAL MYSQL AUTOMATIZADO
+==================================================================================
+
+Por qué es local (no Cowork cloud):
+	El sandbox de Cowork es un contenedor Linux aislado en la nube, sin ruta de red
+	hacia este PC. Confirmado con curl -> "Connection refused" a localhost:8050.
+	Por eso la tarea programada de Cowork "mysql-weekly-report" fue desactivada
+	(quedó en estado enabled:false) y reemplazada por Task Scheduler local,
+	igual que "Wildaga Backup".
+
+Ubicacion del script:
+	C:\Users\InversionesWildaga\Documents\MyNode\mysql-weekly-report\report.js
+
+Que hace:
+	1. Llama a GET http://localhost:8050/db/diagnostics (server-api, requiere x-api-key)
+	2. Construye HTML con: tablas por tamaño, índices sin uso, queries con full scan, buffer pool
+	3. Guarda la salida en .\output\reporte-YYYYMMDD.html y .\output\reporte_ultimo.html
+	   (NO envía email — solo deja el documento para revisión manual)
+	4. Si algo falla, escribe el error en .\output\ y registra log en .\logs\
+
+Endpoint nuevo en server-api:
+	GET /db/diagnostics  (routes/db.js) — solo lectura, queries fijas sobre
+	information_schema / performance_schema. No usa ALLOWED_TABLES (es un endpoint
+	separado del /db/query genérico, no lo modifica).
+	IMPORTANTE: tras este cambio hace falta "pm2 restart server-api" para recargarlo.
+
+Programacion automatica (Task Scheduler):
+	Nombre tarea: "Reporte Semanal MySQL"
+	Frecuencia: Semanal, Lunes
+	Hora: 08:00
+	Comando: node C:\Users\InversionesWildaga\Documents\MyNode\mysql-weekly-report\report.js
+
+Comandos utiles:
+	-- Probar manualmente
+	cd C:\Users\InversionesWildaga\Documents\MyNode\mysql-weekly-report
+	node report.js
+
+	-- Ver logs
+	type C:\Users\InversionesWildaga\Documents\MyNode\mysql-weekly-report\logs\report-YYYYMMDD.log
+
