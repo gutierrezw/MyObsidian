@@ -1,3 +1,6 @@
+> ⚠ **Archivo histórico** — Para consulta diaria usar [[ref-consenso]] (más simple y actualizado).
+> Este archivo conserva el detalle técnico del pipeline, fórmulas y decisiones de diseño.
+
 # CONSENSO SCORE — ARQUITECTURA, IMPLEMENTACIÓN Y EXPANSIÓN
 **AppOO · Versión 2026-W25**
 

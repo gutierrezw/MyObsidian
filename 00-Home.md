@@ -28,18 +28,18 @@
 | Doc | Descripción |
 |-----|-------------|
 | [[20-Proyecto/design-agente-ia\|Agente IA Autónomo]] | Diseño motor de decisiones |
-| [[20-Proyecto/ref-modelo-buy\|Modelo BUY]] | Lógica de compra |
-| [[20-Proyecto/ref-modelo-sell\|Modelo SELL]] | Lógica de venta |
-| [[20-Proyecto/ref-regla-buy\|Regla BUY vs Dividendos]] | Criterio de selección |
+| [[20-Proyecto/ref-oportunidades\|Oportunidades BUY/SELL]] | Reglas, umbrales, score híbrido TOP10 |
+| [[20-Proyecto/ref-dividendos\|Dividendos]] | Lógica de selección por dividendos |
 | [[20-Proyecto/design-preservation\|Preservation Claude]] | Stop dinámico con IA |
 | [[20-Proyecto/spec-autoremediation\|Auto-Remediación]] | Corrección automática |
 
 ### Screener y mercado
 | Doc | Descripción |
 |-----|-------------|
-| [[20-Proyecto/spec-consenso\|Consenso Score]] | Arquitectura, implementación, expansión (7 votos) |
+| [[20-Proyecto/ref-consenso\|Consenso Score]] | Votos, tags, gate Telegram, columnas Screener — referencia rápida |
+| [[20-Proyecto/spec-consenso\|Consenso Score (técnico)]] | Pipeline detallado, fórmulas, decisiones de diseño (archivo histórico) |
 | [[20-Proyecto/ref-yahoo-loader\|Yahoo Finance Loader]] | Descarga de datos de mercado |
-| [[20-Proyecto/design-sentimiento\|Sentimiento]] | Análisis de sentimiento |
+| [[20-Proyecto/design-sentimiento\|Sentimiento]] | Análisis de sentimiento — flujo técnico |
 | [[20-Proyecto/design-gains-capture\|Gains Capture]] | Captura de ganancias |
 
 ### Trading y portfolio
@@ -53,6 +53,7 @@
 ### Infraestructura y MCP
 | Doc | Descripción |
 |-----|-------------|
+| [[20-Proyecto/design-api-server\|server-api Node]] | Bridge AppOO ↔ TradingView/co-work (3 fases) |
 | [[20-Proyecto/spec-github-mcp\|GitHub MCP]] | Especificación MCP |
 | [[20-Proyecto/spec-convergia\|ConvergIA]] | Especificación multi-agente |
 | [[20-Proyecto/spec-multi-agent\|Multi-Agent Debate]] | Arquitectura debate IA |
@@ -97,7 +98,7 @@ AgentManager      → Infraestructura lenta (EDGAR 13F, NASDAQ)
 
 ## Links útiles
 
-- [[20-Proyecto/spec-consenso|Consenso Score]]
+- [[20-Proyecto/ref-consenso|Consenso Score]]
 - [[20-Proyecto/design-preservation|Preservation dinámico Claude]]
 - [[20-Proyecto/spec-multi-agent|Multi-Agent Debate]]
 - [[20-Proyecto/spec-finanzas|Módulo Finanzas Personales]]

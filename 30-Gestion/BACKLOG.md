@@ -14,8 +14,6 @@ Historial de versiones al final del archivo.
 
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
-| 59 | **Infraestructura** | `server-api` Fase 1 — Node.js standalone: Express + mysql2 + auth API key + rate limit. Endpoints `/db/portfolio`, `/db/market`, `/db/consenso`, `/db/query` (SELECT whitelist). PM2 + Cloudflare Tunnel. Panel control en System tab (●Online, Restart/Stop). Diseño: [[design-api-server]] | Alta |
-| 60 | **Infraestructura** | `server-api` Fase 2 — Migrar BrowserBridge Python → Node. AppOO empuja datos via `POST /internal/update`. Nuevos endpoints `/tv/*`. Deprecar `Class_BrowserBridge.py` y puerto 5050. | Media |
 | 61 | **Infraestructura** | `server-api` Fase 3 — MCP server en Node.js (SDK oficial Anthropic). Tools: `query_portfolio`, `get_consenso`, `execute_order`, `get_agent_status`. Audit log por tool call. Reemplaza ítem 20. | Media |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
@@ -26,8 +24,7 @@ Historial de versiones al final del archivo.
 | 38 | **Gmail/Productividad** | Depuración bandeja Gmail con Claude Desktop: clasificar, etiquetar y archivar correos masivos; definir reglas de limpieza recurrente; usar MCP Gmail tools de Claude Desktop | Media |
 | 39 | **BotCrypto/Analytics** | `run_bot_analytics.py`: parsear JSON técnico en `booktrading` (RSI/MACD/ATR/Fibonacci × 3 timeframes diaria/semanal/mensual) de trades cerrados → tabla correlación condición→WR; identificar patrones de entrada ganadores/perdedores para mejorar reglas del scoring | Media |
 | 51 | **IA/Investigación** | Revisar agentes financieros que ofrece Claude (Managed Agents API) y evaluar integración al proyecto de inversiones — análisis de portafolio, señales, alertas u otros casos de uso relevantes | Media |
-| 🧪 48 | **IA/Modelos** | Módulo Sentimiento general de noticias por símbolo (no orientado a temas tech). `Agente_Sentimiento` @8h (3×/día) + `Agente_InterpreteSentimiento` @24h — conectados en `Class_DashBot.py`. Lógica `inflexion` corregida: vota +1 solo si sentimiento≥0, abstiene si negativo. Depuración automática: retiene últimos 3 meses (`cleanup_sentiment(months=3)`). Voto `Sent` activo en Consenso. Key: `ClaudeAPIS`. **En prueba en producción** | Media |
-| 🧪 50 | **IA/Modelos** | Integrar sentimiento como feature en modelos BUY/SELL — agregar `sentiment_score` (última lectura), `sentiment_3d_avg`, `sentiment_7d_avg`, `sentiment_patron` (encoded: acumulacion=1, neutro=0, distribucion=-1) en `aplanar_datos_tecnicos()` y `cargar_datos()`; reentrenar modelos. **Prerequisito:** ~1 mes de histórico en `market_sentiment` para que la señal sea estadísticamente válida | Media |
+| 64 | **IA/Modelos** | **Retrain agosto** — 2do entrenamiento modelos BUY/SELL con sentimiento real. Verificar feature importance de `sentiment_*` > 0. Ejecutar desde Monitor IA → botón Entrenar SELL y BUY. Prerequisito: ≥30 filas etiquetadas post-2026-05-22. | Media |
 | 52 | **Infraestructura/Agentes** | Panel Agentes — niveles jerárquicos: N1 Datos (MarketScreener, EdgarFunds, FundFilings, 13FHoldings, Sentimiento, YouTubeScanner), N2 Señales (13FScores, InstitucionalScore, ConsensoCache, InterpreteSentimiento, ClasificadorETF, StockBeta), N3 Decisiones (ManagerPreservation, SyncOrders, LtvControl, OrderEodCleanup), N4 Soporte (PriceSync, PerformaValidator, SplitsControl, ExtractosWatcher, AuditPortfolio, ApiCostTracker). Agregar campo `nivel` en `AGENTES_SCHEDULE`, agrupar por nivel en treeview con separador visual, ajustar columnas del panel (ancho + orden). | Media |
 | 🧪 53 | **Stock/GainsCapture** | `Agente_GainsCapture` — espíritu especulativo (distinto a Preservation que es defensivo). Opera sobre `categoriaActivo='N'` (volátiles): venta parcial por niveles de ROI (50%/100%/150%), validación Claude de técnicos (RSI_d/RSI_w/EMA) antes de cada nivel. Dos modos: `automatico` (LMT directo a IB + notif Telegram) y `autorizado` (propuesta Telegram /ok /no, timeout 30min → cancela sin ejecutar). **En observación.** | Alta |
 | 55 | **IA/Consenso** | Tech Alignment — 7º voto Consenso: RSS TechCrunch+MIT Review → Claude Haiku clasifica temas activos (ai_semiconductors, clean_energy, biotech, etc.) → `voto_tech_alignment(symbol)`. Plan completo en `ConvergIA/`: `Scanner_Tecnologias.py` + `ThemeMapper.py`. Señal para **nuevas oportunidades** según tesis de inversión, no para gestión de cartera activa. | Baja |
@@ -35,10 +32,38 @@ Historial de versiones al final del archivo.
 | 57 | **IA/Plan** | **"Riesgos del Plan"** — panel UI editable para los parámetros de la misión del agente: meta capital (hoy $1.2M/2030), objetivo ingresos pasivos (hoy 3%), escalado de objetivo (ej: revisar a 4% cuando portafolio ≥ $800K), leverage máximo tolerado, pérdida máxima aceptable. Hoy estos valores están hardcodeados en el prompt. Pasar a `llave_privada.agente_ia.plan` → editable desde UI sin reiniciar app. Segunda sección "Riesgos del Plan": concentración máxima por sector/región, criterios de salida de emergencia. | Media |
 | 58 | **Infraestructura/IB** | Migrar `Class_Ibrks.py` legacy a librería oficial de IB — intento anterior revertido por complejidad. Arrancar en rama separada, validar con `AppTest/run_ib_websocket.py` antes de tocar main. La reconexión automática (`_tickle_loop`) debe quedar igual que hoy. | Baja |
 | 62 | **Infraestructura** | Mantenimiento versiones Node.js — definir proceso equivalente a Python: evaluar `nvm-windows` como gestor de versiones, documentar versión mínima requerida por `server-api`, validar PM2 + dependencias npm tras cada upgrade. Ref: [[ref-instalacion]] | Baja |
+| 63 | **Docs / UX** | Conectar docs Obsidian a la app — la app lee `.md` directamente desde `Doc/` (junction a `MyObsidian/AppOO/20-Proyecto/`) en vez de contenido hardcodeado. Opción 1: `open(ruta_doc / filename).read()`. Opción 2: Obsidian Local REST API (`localhost:27123`). Editar en Obsidian = se refleja en la app automáticamente. Paneles afectados: identificar cuáles tienen docs hardcodeadas antes de implementar. | Baja |
 
 ---
 
 ## Historial
+
+### v3.9 — 2026-07-03
+**server-api Fase 2 (ítem 60) + fixes TradingView bridge:**
+- ✅ ítem 60 — `Class_BrowserBridge.py` reescrito: AppOO empuja a Node via `POST /internal/update`. Mini-server Python en 5051 recibe callbacks de órdenes desde Node. Puerto 5050 deprecado.
+- ✅ `routes/tv.js` — nuevos endpoints `/tv/*` (position, current, price, ping, contexto, symbols, balance, order, current POST). `/internal/update` sin rate limit (valida IP). Rate limit 120 req/min solo en `/tv/*`.
+- ✅ `_push()` — `json.dumps(default=str)` para serializar datetime/Decimal de MySQL (fix silencioso que bloqueaba el push de lotes)
+- ✅ Scripts Tampermonkey actualizados a v2.2 (tv_panel) y v1.1 (claude_contexto). `claude_contexto.js` unificado en `externos/userscripts/` (eliminado duplicado AppTest).
+- ✅ `Class_SystemStatus.py` — endpoint TradingView Server actualizado a 5051
+
+### v3.8 — 2026-07-02
+**server-api Fase 1 + fixes freeze UI + retiros FCI:**
+- ✅ ítem 59 — `server-api` Fase 1 operativo en `MyNode/server-api/` (PM2, puerto 8050). Express + mysql2 + API key + rate limit. Endpoints: `/health`, `/db/portfolio`, `/db/market`, `/db/consenso`, `/db/booktrading`, `/db/extractos`, `/db/query`, `/db/diagnostics`. Config en `Claude-Cowork-Scripts/mysql_config.json`.
+- ✅ `MyMessageBox.grab_release()` — fix freeze app tras cerrar diálogo (grab_set no se liberaba con withdraw)
+- ✅ `start_stock` — carga BD primero, `run()` (yfinance×41) en hilo background `InitStock_BG` — mismo patrón que Crypto
+- ✅ `on_treeview_select` — guard `if self.select_activo:` evita crash con selección vacía
+- ✅ `construir_extracto_fci` — retiros con `abs()` para evitar negativos cuando `cantidad` es negativa (rescates)
+
+### v3.7 — 2026-07-01
+**Sentimiento integrado en modelos IA + fixes SELL/BUY:**
+- ✅ ítem 48 — Módulo Sentimiento operativo: `Agente_Sentimiento` @8h + `Agente_InterpreteSentimiento` @24h. Voto `Sent` activo en Consenso. Depuración extendida a 5 meses. 40 días de histórico, 39 símbolos, 22K lecturas.
+- ✅ ítem 50 — Sentimiento como feature en modelos BUY/SELL: `enriquecer_con_sentimiento()` en flujo de entrenamiento. Modelos reentrenados (SELL: 81%±7 / BUY: 81%±8 precisión). `predecir_modelo()` con guard para columnas faltantes. 2do retrain programado agosto → ítem 64.
+- ✅ `Agente_ClasificadorCrypto` — reclasifica activos crypto con estrategia NULL o vieja vía Claude Haiku
+- ✅ `MyMessageBox` — fix TclError bad window path (withdraw+wait_variable)
+- ✅ Fix raíz SWK/CRNT: `filtrar=False` en ManagerSell/ManagerBuy + gate bypass por confianza IA
+- ✅ EMA tendencia SELL corregida: `e20>e50>e100` (pico alcista = momento de toma de ganancias)
+- ✅ Entrenamiento en hilo de fondo — UI no se bloquea durante RF fit
+- ✅ `ref-consenso.md` creado en Obsidian — referencia simple votos/tags/screener
 
 ### v3.6 — 2026-06-23
 **IB WebSocket + colores panel APIs + rename automático tickers:**

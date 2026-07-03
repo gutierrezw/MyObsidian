@@ -36,3 +36,11 @@ FROM "10-Memoria"
 WHERE metadata.type = "feedback"
 SORT file.mtime DESC
 ```
+
+## Infraestructura — procesos de mantenimiento
+
+```dataview
+TABLE estado, fecha AS "Última revisión"
+FROM "40-Infraestructura"
+SORT fecha DESC
+```
