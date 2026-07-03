@@ -14,6 +14,7 @@ Historial de versiones al final del archivo.
 
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
+| 65 | **Infraestructura** | Cloudflare Tunnel — exponer `server-api` (puerto 8050) con dominio fijo y gratuito. Habilita MCP desde cualquier dispositivo (móvil, claude.ai, Claude scheduled) sin VPN. Prerequisito para ítem 28. | **Alta** |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
 | 22 | **Auto-Remediación** | UI tab System: panel "Fallos & Métricas" — treeview fallos + resumen calidad + desempeño BD | Media |
