@@ -14,11 +14,9 @@ Historial de versiones al final del archivo.
 
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
-| 61 | **Infraestructura** | `server-api` Fase 3 — MCP server en Node.js (SDK oficial Anthropic). Tools: `query_portfolio`, `get_consenso`, `execute_order`, `get_agent_status`. Audit log por tool call. Reemplaza ítem 20. | Media |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
 | 22 | **Auto-Remediación** | UI tab System: panel "Fallos & Métricas" — treeview fallos + resumen calidad + desempeño BD | Media |
-| 🔄 20 | **Infraestructura** | MCP local: servidor de herramientas para acceso a shell/BD desde co-work — **en co-work** | Media |
 | 21 | **Mantenimiento** | Depuración imports — `Modulos_python.py` (vulture 63 hallazgos) | Baja |
 | 🔄 28 | **Infraestructura** | Proceso de mantenimiento del sistema vía Claude scheduled: check NTP con `ntplib` (alerta si deriva >500ms), limpieza logs rotativos, verificación servicios críticos (IB, Binance, MySQL). **En co-work.** | Media |
 | 38 | **Gmail/Productividad** | Depuración bandeja Gmail con Claude Desktop: clasificar, etiquetar y archivar correos masivos; definir reglas de limpieza recurrente; usar MCP Gmail tools de Claude Desktop | Media |
@@ -38,12 +36,18 @@ Historial de versiones al final del archivo.
 
 ## Historial
 
+### v4.0 — 2026-07-03
+**server-api Fase 3 (ítems 61 + 20) — MCP server operativo:**
+- ✅ ítem 61 / ítem 20 — MCP server en `routes/mcp.js` (`@modelcontextprotocol/sdk` v1.29). 6 tools: `query_portfolio`, `get_consenso`, `get_market_data`, `get_booktrading`, `execute_order` (simula por default), `get_agent_status`. Audit log en `logs/mcp_audit.jsonl`. Endpoint `/mcp` con API key en `server.js`.
+- ✅ `routes/tv.js` exporta `state` — compartido con `mcp.js` para `get_agent_status`
+- ✅ Userscript de contexto eliminado — primer intento de co-work, superado por MCP
+
 ### v3.9 — 2026-07-03
 **server-api Fase 2 (ítem 60) + fixes TradingView bridge:**
 - ✅ ítem 60 — `Class_BrowserBridge.py` reescrito: AppOO empuja a Node via `POST /internal/update`. Mini-server Python en 5051 recibe callbacks de órdenes desde Node. Puerto 5050 deprecado.
 - ✅ `routes/tv.js` — nuevos endpoints `/tv/*` (position, current, price, ping, contexto, symbols, balance, order, current POST). `/internal/update` sin rate limit (valida IP). Rate limit 120 req/min solo en `/tv/*`.
 - ✅ `_push()` — `json.dumps(default=str)` para serializar datetime/Decimal de MySQL (fix silencioso que bloqueaba el push de lotes)
-- ✅ Scripts Tampermonkey actualizados a v2.2 (tv_panel) y v1.1 (claude_contexto). `claude_contexto.js` unificado en `externos/userscripts/` (eliminado duplicado AppTest).
+- ✅ Script Tampermonkey tv_panel actualizado a v2.2.
 - ✅ `Class_SystemStatus.py` — endpoint TradingView Server actualizado a 5051
 
 ### v3.8 — 2026-07-02
@@ -215,7 +219,7 @@ Historial de versiones al final del archivo.
 ### v2.2 — 2026-05-02
 - ✅ ítem 29 — Órdenes desde TV: `POST /order` en `Class_BrowserBridge.py` conecta con broker vía `_order_callback` → `put_order`; userscript muestra estado (Submitted/PreSubmitted/FILLED) y limpia qty; refresh automático del panel post-orden
 - ✅ ítem 29 (extensión) — Selector de cartera en TV panel: botón ≡ en header abre lista de chips con todos los símbolos en posición; clic en chip hace `POST /current` → `_switch_callback` → `_abrir_tradingview(symbol)` → TV navega al símbolo; botón flotante 📊 siempre visible para reabrir el panel
-- ✅ ítem 25 — claude.ai en browser vía Violentmonkey: endpoint `GET /contexto` en `Class_BrowserBridge.py` sirve contexto de cartera; `set_claude_contexto()` actualiza el payload; userscript inyecta datos en claude.ai
+- ✅ ítem 25 — primer intento de conectar cartera con co-work (superado por MCP server Fase 3 — 2026-07-03)
 - ✅ ítem 33 — rebuild diaria_performance desde 2025-12-20: `run_balance_booktrading.py` sin residuos; `run_fix_hasi_stock.py` corrigió 19 registros HASI (5 acciones fantasma desde sec=25); rebuild completo ejecutado
 
 ### v2.1 — 2026-05-01
