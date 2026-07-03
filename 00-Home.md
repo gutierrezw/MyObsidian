@@ -54,6 +54,7 @@
 | Doc | Descripción |
 |-----|-------------|
 | [[20-Proyecto/design-api-server\|server-api Node]] | Bridge AppOO ↔ TradingView/co-work (3 fases) |
+| [[20-Proyecto/ref-cowork-tools\|Co-work Tools]] | Tools MCP disponibles para Claude + gaps actuales |
 | [[20-Proyecto/spec-github-mcp\|GitHub MCP]] | Especificación MCP |
 | [[20-Proyecto/spec-convergia\|ConvergIA]] | Especificación multi-agente |
 | [[20-Proyecto/spec-multi-agent\|Multi-Agent Debate]] | Arquitectura debate IA |
