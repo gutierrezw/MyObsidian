@@ -1,9 +1,9 @@
 ---
 tipo: design
 modulo: api-server
-version: 1.0
-fecha: 2026-06-28
-status: planificado
+version: 1.2
+fecha: 2026-07-03
+status: implementado
 ---
 
 # AppOO API Server — Diseño por Fases
@@ -172,3 +172,4 @@ Node.js es el runtime nativo del SDK oficial de MCP de Anthropic — integració
 
 ## Historial
 - 2026-06-28 v1.0 — diseño inicial 3 fases, definición de arquitectura y stack
+- 2026-07-03 v1.2 — Fase 3 implementada: `routes/mcp.js` con 6 tools MCP (query_portfolio, get_consenso, get_market_data, get_booktrading, execute_order, get_agent_status). Audit log en `logs/mcp_audit.jsonl`. Endpoint `/mcp` con API key en server.js.
