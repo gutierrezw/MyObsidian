@@ -1,7 +1,7 @@
 ---
 tipo: ref
 modulo: cowork-tools
-version: 1.0
+version: 1.1
 fecha: 2026-07-03
 status: activo
 ---
@@ -13,23 +13,36 @@ status: activo
 
 ---
 
-## Configuración MCP (una vez)
+## Disponibilidad por tipo de sesión
 
-En `.claude/settings.json`:
+| Sesión | MCP appoo disponible | Cómo |
+|--------|---------------------|------|
+| **Claude Code CLI** | ✅ Ya funciona | `~/.claude.json` via `claude mcp add` |
+| **Cowork / Chat / Mobile** | ❌ Pendiente | Requiere Cloudflare Tunnel (item 65) + conector claude.ai |
 
-```json
-{
-  "mcpServers": {
-    "appoo": {
-      "type": "http",
-      "url": "http://localhost:8050/mcp",
-      "headers": { "X-API-Key": "<api_key del config>" }
-    }
-  }
-}
+---
+
+## Configuración MCP — Claude Code CLI (activo)
+
+Comando usado para registrar (una sola vez):
+
+```bash
+claude mcp add --transport http --scope user appoo http://localhost:8050/mcp \
+  --header "X-API-Key: <api_key del config>"
 ```
 
-Restart tras configurar: `pm2 restart server-api`
+Escribe en `~/.claude.json`. Verificar con: `claude mcp list` → debe mostrar `appoo: ✔ Connected`.
+
+**Prerequisito:** `pm2 start server-api` corriendo en puerto 8050.
+
+---
+
+## Configuración MCP — Cowork/Chat (pendiente Tunnel)
+
+Cuando esté activo el Cloudflare Tunnel (item 65):
+1. Tunnel expone `https://appoo.<dominio>.trycloudflare.com` → puerto 8050
+2. En claude.ai → Settings → Connectors → Add MCP → URL pública + API Key
+3. Disponible en todas las sesiones (Cowork, Chat, Mobile)
 
 ---
 
@@ -118,4 +131,8 @@ Si alguno de estos gaps se vuelve necesario → agregar tool en `routes/mcp.js` 
 Cada tool call queda registrado en `server-api/logs/mcp_audit.jsonl` con timestamp, tool, args y resultado.
 
 ## Historial
-- 2026-07-03 v1.0 — creación tras implementar MCP Fase 3
+
+| Versión | Fecha | Cambio |
+|---------|-------|--------|
+| 1.0 | 2026-07-03 | Creación tras implementar MCP Fase 3 |
+| 1.1 | 2026-07-03 | Corrección config: `claude mcp add` (no settings.json). Tabla disponibilidad por sesión. Pasos Tunnel pendiente. |
