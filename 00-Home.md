@@ -54,6 +54,7 @@
 | Doc | Descripción |
 |-----|-------------|
 | [[10-Memoria/ref-vision-app\|Visión AppOO]] | Automatización 24x7, portabilidad, escalabilidad a terceros — principios que guían cada decisión |
+| [[10-Memoria/ref-metodo-claude\|Método Claude + Obsidian]] | Cómo funciona el sistema de co-work — para replicarlo en otros proyectos |
 
 ### Infraestructura y MCP
 | Doc | Descripción |
