@@ -50,6 +50,11 @@
 | [[20-Proyecto/spec-ltv-agent\|LTV Agent]] | Control préstamo Binance |
 | [[20-Proyecto/spec-apalancamiento-ib\|Apalancamiento IB]] | Módulo Interactive Brokers |
 
+### Visión estratégica
+| Doc | Descripción |
+|-----|-------------|
+| [[10-Memoria/ref-vision-app\|Visión AppOO]] | Automatización 24x7, portabilidad, escalabilidad a terceros — principios que guían cada decisión |
+
 ### Infraestructura y MCP
 | Doc | Descripción |
 |-----|-------------|
