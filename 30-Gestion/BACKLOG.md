@@ -14,7 +14,8 @@ Historial de versiones al final del archivo.
 
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
-| 65 | **Infraestructura** | Cloudflare Tunnel — exponer `server-api` (puerto 8050) con dominio fijo y gratuito. Habilita MCP desde cualquier dispositivo (móvil, claude.ai, Claude scheduled) sin VPN. Prerequisito para ítem 28. | **Alta** |
+| 65 | **Infraestructura** | Cloudflare Tunnel — ✅ PARCIAL. Túnel `appoo` activo como servicio Windows. Dominio `wildaga.com` comprado. Rutas: `api-main.wildaga.com` y `api-son.wildaga.com` → `localhost:8050`. **Pendiente:** OAuth en `/mcp` — claude.ai Connectors solo acepta OAuth, no API key. Hasta resolver, MCP solo disponible en Claude Code CLI. | **Alta** |
+| 66 | **Infraestructura/MCP** | OAuth en server-api — implementar OAuth 2.0 en `/mcp` para habilitar registro como conector en claude.ai (Cowork/Chat/Mobile). Prerequisito: ítem 65 parcialmente completo. | **Alta** |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
 | 22 | **Auto-Remediación** | UI tab System: panel "Fallos & Métricas" — treeview fallos + resumen calidad + desempeño BD | Media |
