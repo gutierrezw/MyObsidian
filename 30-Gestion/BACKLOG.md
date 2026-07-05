@@ -20,7 +20,7 @@ Historial de versiones al final del archivo.
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
 | 22 | **Auto-Remediación** | UI tab System: panel "Fallos & Métricas" — treeview fallos + resumen calidad + desempeño BD | Media |
 | 21 | **Mantenimiento** | Depuración imports — `Modulos_python.py` (vulture 63 hallazgos) | Baja |
-| 🔄 28 | **Infraestructura** | Proceso de mantenimiento del sistema vía Claude scheduled: check NTP con `ntplib` (alerta si deriva >500ms), limpieza logs rotativos, verificación servicios críticos (IB, Binance, MySQL). **En co-work.** | Media |
+| 28 | **Infraestructura** | Check NTP — ✅ DONE. `Agente_NtpCheck` @5min en AgentManager. Alerta Telegram si deriva >500ms. Limpieza logs y check servicios: cubiertos por agentes existentes. | Media |
 | 38 | **Gmail/Productividad** | Depuración bandeja Gmail con Claude Desktop: clasificar, etiquetar y archivar correos masivos; definir reglas de limpieza recurrente; usar MCP Gmail tools de Claude Desktop | Media |
 | 39 | **BotCrypto/Analytics** | `run_bot_analytics.py`: parsear JSON técnico en `booktrading` (RSI/MACD/ATR/Fibonacci × 3 timeframes diaria/semanal/mensual) de trades cerrados → tabla correlación condición→WR; identificar patrones de entrada ganadores/perdedores para mejorar reglas del scoring | Media |
 | 51 | **IA/Investigación** | Revisar agentes financieros que ofrece Claude (Managed Agents API) y evaluar integración al proyecto de inversiones — análisis de portafolio, señales, alertas u otros casos de uso relevantes | Media |
