@@ -170,6 +170,23 @@ Node.js es el runtime nativo del SDK oficial de MCP de Anthropic — integració
 
 ---
 
+## Cloudflare Tunnel — estado actual (2026-07-05)
+
+| Ítem | Valor |
+|------|-------|
+| Dominio | `wildaga.com` (Cloudflare Registrar) |
+| Ruta principal | `api-main.wildaga.com` → `localhost:8050` |
+| Ruta hijo | `api-son.wildaga.com` → `localhost:8050` |
+| Proceso | Servicio Windows `Cloudflared` — arranca automático con el sistema |
+| Tunnel ID | `c77eb148-6f47-4692-ae78-dd932f1fafe9` |
+| Estado | ✅ HEALTHY — acceso externo funcionando |
+| Limitación | `/mcp` requiere OAuth para registrarse en claude.ai Connectors — pendiente ítem 66 |
+
+El túnel NO usa PM2 — corre como servicio Windows nativo (`cloudflared service install`).
+
+---
+
 ## Historial
 - 2026-06-28 v1.0 — diseño inicial 3 fases, definición de arquitectura y stack
-- 2026-07-03 v1.2 — Fase 3 implementada: `routes/mcp.js` con 6 tools MCP (query_portfolio, get_consenso, get_market_data, get_booktrading, execute_order, get_agent_status). Audit log en `logs/mcp_audit.jsonl`. Endpoint `/mcp` con API key en server.js.
+- 2026-07-03 v1.2 — Fase 3 implementada: `routes/mcp.js` con 6 tools MCP. Audit log en `logs/mcp_audit.jsonl`.
+- 2026-07-05 v1.3 — Cloudflare Tunnel activo: dominio `wildaga.com`, rutas `api-main` y `api-son`. OAuth pendiente para claude.ai Connectors (ítem 66).

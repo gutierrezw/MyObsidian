@@ -18,7 +18,7 @@ status: activo
 | Sesión | MCP appoo disponible | Cómo |
 |--------|---------------------|------|
 | **Claude Code CLI** | ✅ Ya funciona | `~/.claude.json` via `claude mcp add` |
-| **Cowork / Chat / Mobile** | ❌ Pendiente | Requiere Cloudflare Tunnel (item 65) + conector claude.ai |
+| **Cowork / Chat / Mobile** | ❌ Pendiente OAuth | Túnel activo (`api-main.wildaga.com`) pero `/mcp` necesita OAuth para claude.ai Connectors (ítem 66) |
 
 ---
 
@@ -37,12 +37,13 @@ Escribe en `~/.claude.json`. Verificar con: `claude mcp list` → debe mostrar `
 
 ---
 
-## Configuración MCP — Cowork/Chat (pendiente Tunnel)
+## Configuración MCP — Cowork/Chat (pendiente OAuth)
 
-Cuando esté activo el Cloudflare Tunnel (item 65):
-1. Tunnel expone `https://appoo.<dominio>.trycloudflare.com` → puerto 8050
-2. En claude.ai → Settings → Connectors → Add MCP → URL pública + API Key
-3. Disponible en todas las sesiones (Cowork, Chat, Mobile)
+Túnel activo en `https://api-main.wildaga.com` → puerto 8050. Bloqueado por falta de OAuth:
+
+- claude.ai Connectors solo acepta OAuth 2.0 — no API key header
+- Pendiente: implementar OAuth en `routes/mcp.js` (ítem 66)
+- Cuando esté listo: claude.ai → Settings → Connectors → Add MCP → `https://api-main.wildaga.com/mcp`
 
 ---
 
@@ -136,3 +137,4 @@ Cada tool call queda registrado en `server-api/logs/mcp_audit.jsonl` con timesta
 |---------|-------|--------|
 | 1.0 | 2026-07-03 | Creación tras implementar MCP Fase 3 |
 | 1.1 | 2026-07-03 | Corrección config: `claude mcp add` (no settings.json). Tabla disponibilidad por sesión. Pasos Tunnel pendiente. |
+| 1.2 | 2026-07-05 | Tunnel activo: `api-main.wildaga.com`. Bloqueado por OAuth — claude.ai Connectors no acepta API key. |
