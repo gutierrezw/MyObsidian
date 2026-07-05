@@ -18,7 +18,7 @@ status: activo
 | Sesión | MCP appoo disponible | Cómo |
 |--------|---------------------|------|
 | **Claude Code CLI** | ✅ Ya funciona | `~/.claude.json` via `claude mcp add` |
-| **Cowork / Chat / Mobile** | ❌ Pendiente OAuth | Túnel activo (`api-main.wildaga.com`) pero `/mcp` necesita OAuth para claude.ai Connectors (ítem 66) |
+| **Cowork / Chat / Mobile** | ✅ OAuth implementado | `api-main.wildaga.com/mcp` — registrar en claude.ai Settings → Connectors |
 
 ---
 
@@ -37,13 +37,20 @@ Escribe en `~/.claude.json`. Verificar con: `claude mcp list` → debe mostrar `
 
 ---
 
-## Configuración MCP — Cowork/Chat (pendiente OAuth)
+## Configuración MCP — Cowork/Chat (OAuth activo)
 
-Túnel activo en `https://api-main.wildaga.com` → puerto 8050. Bloqueado por falta de OAuth:
+Túnel: `https://api-main.wildaga.com` → puerto 8050. OAuth 2.0 + PKCE implementado.
 
-- claude.ai Connectors solo acepta OAuth 2.0 — no API key header
-- Pendiente: implementar OAuth en `routes/mcp.js` (ítem 66)
-- Cuando esté listo: claude.ai → Settings → Connectors → Add MCP → `https://api-main.wildaga.com/mcp`
+**Registrar conector en claude.ai:**
+1. Settings → Connectors → Add MCP
+2. MCP Server URL: `https://api-main.wildaga.com/mcp`
+3. OAuth Authorization URL: `https://api-main.wildaga.com/oauth/authorize`
+4. OAuth Token URL: `https://api-main.wildaga.com/oauth/token`
+5. Client ID: `claude-ai`
+6. Client Secret: en `oauth_clients.json`
+7. Hacer click en "Connect" → se abre popup → "Permitir" → token guardado en `oauth_tokens.json`
+
+**Discovery automático:** `https://api-main.wildaga.com/.well-known/oauth-authorization-server`
 
 ---
 
@@ -138,3 +145,4 @@ Cada tool call queda registrado en `server-api/logs/mcp_audit.jsonl` con timesta
 | 1.0 | 2026-07-03 | Creación tras implementar MCP Fase 3 |
 | 1.1 | 2026-07-03 | Corrección config: `claude mcp add` (no settings.json). Tabla disponibilidad por sesión. Pasos Tunnel pendiente. |
 | 1.2 | 2026-07-05 | Tunnel activo: `api-main.wildaga.com`. Bloqueado por OAuth — claude.ai Connectors no acepta API key. |
+| 1.3 | 2026-07-05 | OAuth 2.0 + PKCE implementado en `routes/oauth.js`. Cowork/Chat ya puede conectar. |
