@@ -14,6 +14,7 @@ Historial de versiones al final del archivo.
 
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
+| 67 | **Stock/UI** | Panel trades IB en la app — visualizar los trades ejecutados en IB (últimos 7 días al arranque, solo día actual en adelante). Útil para auditar operaciones que no se registraron en booktrading sin tener que salir de la app. Vista de solo lectura, sin inserción directa para no descontrolar inventario. | Media |
 | 65 | **Infraestructura** | Cloudflare Tunnel — ✅ DONE. Túnel activo como servicio Windows. Dominio `wildaga.com`. Rutas `api-main.wildaga.com` y `api-son.wildaga.com` → `localhost:8050`. OAuth implementado (ítem 66). | Alta |
 | 66 | **Infraestructura/MCP** | OAuth en server-api — ✅ DONE. `routes/oauth.js`: Authorization Code + PKCE. `auth.js` acepta Bearer token. Discovery: `/.well-known/oauth-authorization-server`. Registrar en claude.ai Settings → Connectors → `https://api-main.wildaga.com/mcp`. | Alta |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
