@@ -380,7 +380,28 @@ if __name__ == "__main__":
 ### Monitor IA (Class_SystemStatus.py)
 - Botón "Entrenar" ejecuta `run_entrenamientoBuy()` / `run_entraminetoSell()`
 - Muestra métricas del modelo
-- Permite ajustar umbrales
+- Botón **"Modelo"** abre el panel de configuración directamente desde la UI
+
+### Cómo actualizar parámetros del modelo (sin tocar código ni BD manualmente)
+
+```
+Tab "Buy IA"  →  botón "Modelo"  →  campo "Parámetros (JSON)"  →  editar  →  "Guardar"
+```
+
+El panel expone todos los parámetros del modelo editables en tiempo real:
+
+| Campo | Descripción |
+|-------|-------------|
+| Modelo | Identificador en BD (`modelo_buyv01`) |
+| Nombre | Nombre descriptivo |
+| Tipo Modelo | Algoritmo (`RandomForest`) |
+| Define Modelo | Tipo de clasificador (`buy_classifier`) |
+| Parámetros (JSON) | `n_folds`, `max_depth`, `umbral_buy`, `umbral_observacion`, etc. |
+| Documentación | Texto libre — descripción del modelo |
+
+> **Importante:** después de cambiar parámetros y guardar, hay que reiniciar la app y presionar **"Entrenar"** para que el modelo se reentrene con los nuevos valores.
+
+![[graphics/config-modelo-buy.png]]
 
 ### Evaluación de Oportunidades
 - `Class_DashBot.py`: `evaluar_oportunidades_*_con_IA()`
