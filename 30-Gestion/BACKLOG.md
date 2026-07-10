@@ -33,11 +33,18 @@ Historial de versiones al final del archivo.
 | 57 | **IA/Plan** | **"Riesgos del Plan"** — panel UI editable para los parámetros de la misión del agente: meta capital (hoy $1.2M/2030), objetivo ingresos pasivos (hoy 3%), escalado de objetivo (ej: revisar a 4% cuando portafolio ≥ $800K), leverage máximo tolerado, pérdida máxima aceptable. Hoy estos valores están hardcodeados en el prompt. Pasar a `llave_privada.agente_ia.plan` → editable desde UI sin reiniciar app. Segunda sección "Riesgos del Plan": concentración máxima por sector/región, criterios de salida de emergencia. | Media |
 | 58 | **Infraestructura/IB** | Migrar `Class_Ibrks.py` legacy a librería oficial de IB — intento anterior revertido por complejidad. Arrancar en rama separada, validar con `AppTest/run_ib_websocket.py` antes de tocar main. La reconexión automática (`_tickle_loop`) debe quedar igual que hoy. | Baja |
 | 62 | **Infraestructura** | Mantenimiento versiones Node.js — definir proceso equivalente a Python: evaluar `nvm-windows` como gestor de versiones, documentar versión mínima requerida por `server-api`, validar PM2 + dependencias npm tras cada upgrade. Ref: [[ref-instalacion]] | Baja |
-| 63 | **Docs / UX** | Conectar docs Obsidian a la app — la app lee `.md` directamente desde `Doc/` (junction a `MyObsidian/AppOO/20-Proyecto/`) en vez de contenido hardcodeado. Opción 1: `open(ruta_doc / filename).read()`. Opción 2: Obsidian Local REST API (`localhost:27123`). Editar en Obsidian = se refleja en la app automáticamente. Paneles afectados: identificar cuáles tienen docs hardcodeadas antes de implementar. | Baja |
 
 ---
 
 ## Historial
+
+### v4.1 — 2026-07-10
+**Documentación centralizada en Obsidian + modelos IA:**
+- ✅ ítem 63 — Docs conectadas a Obsidian vía URI scheme (`obsidian://open?vault=...`). Reemplazada función `documentar_estructura` (popup+BD BLOB) por apertura directa en Obsidian. Estructuras: DataHub, Cache, BuySell, Rebalanceo, Screener, modelos IA (Buy/Sell). Vault configurable en `profiles/*.json` → `APPOO_OBSIDIAN_VAULT` env var. Hijo con vault vacío = botón silencioso.
+- ✅ Toggle "Modelo ON / Etiquetando" en tabs Buy IA y Sell IA — botón rojo cuando modo etiquetado activo. Persiste en `paramts` JSON de BD.
+- ✅ "Ver Docs" en Buy IA / Sell IA → abre `ref-modelos-ia` en Obsidian.
+- ✅ Ventana parámetros modelo simplificada — solo Modelo (readonly) + checkbox Modo Etiquetado + JSON parámetros.
+- ✅ `documents` column eliminada de `insert_modelo_ia` / `update_modelo_ia` (`Modulos_Mysql.py`). SQL: `ALTER TABLE bdinv.modelos_ia DROP COLUMN documents;`
 
 ### v4.0 — 2026-07-03
 **server-api Fase 3 (ítems 61 + 20) — MCP server operativo:**
