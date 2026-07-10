@@ -32,7 +32,9 @@ Módulo que implementa modelos de Machine Learning (RandomForestClassifier) para
 
 ## Parámetros por Defecto
 
-### DEFAULT_PARAMS_SELL
+Los parámetros del algoritmo son idénticos para ambos modelos. La única diferencia es el nombre del umbral de acción (`umbral_sell` vs `umbral_buy`) que refleja la decisión de cada modelo.
+
+### Parámetros comunes (Sell y Buy)
 ```python
 {
     "n_estimators": 100,        # Número de árboles en el bosque
@@ -41,24 +43,17 @@ Módulo que implementa modelos de Machine Learning (RandomForestClassifier) para
     "random_state": 42,         # Semilla para reproducibilidad
     "n_folds": 5,               # Folds para validación cruzada
     "test_size": 0.3,           # Proporción de datos para test
-    "umbral_sell": 0.65,        # Confianza mínima para recomendar venta
     "umbral_observacion": 0.35  # Por debajo se descarta
 }
 ```
 
-### DEFAULT_PARAMS_BUY
-```python
-{
-    "n_estimators": 100,
-    "max_depth": 10,
-    "min_samples_split": 5,
-    "random_state": 42,
-    "n_folds": 5,
-    "test_size": 0.3,
-    "umbral_buy": 0.65,         # Confianza mínima para recomendar compra
-    "umbral_observacion": 0.35
-}
-```
+### Umbral específico por modelo
+| Modelo | Clave BD | Valor defecto | Significado |
+|--------|----------|---------------|-------------|
+| Sell | `umbral_sell` | 0.65 | Confianza mínima para recomendar venta |
+| Buy  | `umbral_buy`  | 0.65 | Confianza mínima para recomendar compra |
+
+> **Nota:** Los umbrales se leen desde la tabla `modelos_ia` en BD. Si no existen, se usan los valores por defecto del código. Cada modelo debe leer su propia clave — Buy lee `umbral_buy`, Sell lee `umbral_sell`.
 
 ---
 
@@ -299,20 +294,30 @@ metrics = {
               ▼
     load_modelo() ← modelo_*.pkl
               │
-              ▼
-    predecir_modelo()
+              ├── Sin .pkl → MODO ETIQUETADO
+              │       │
+              │       └── Envía TODAS las oportunidades con origen="system"
+              │           para que el usuario apruebe/rechace por Telegram
+              │           y acumule muestras de entrenamiento
               │
-              ├── predict() → etiqueta
-              └── predict_proba() → confianza
-              │
-              ▼
-    Clasificación por umbral:
-    ┌─────────────────────────────────────┐
-    │ confianza >= 0.65 → sell/buy        │
-    │ confianza >= 0.35 → observacion     │
-    │ confianza <  0.35 → descartar       │
-    └─────────────────────────────────────┘
+              └── Con .pkl → MODO PREDICCIÓN
+                      │
+                      ▼
+              predecir_modelo()
+                      │
+                      ├── predict() → etiqueta
+                      └── predict_proba() → confianza
+                      │
+                      ▼
+              Clasificación por umbral:
+              ┌─────────────────────────────────────┐
+              │ confianza >= umbral (0.65) → acción │
+              │ confianza >= 0.35      → observar   │
+              │ confianza <  0.35      → descartar  │
+              └─────────────────────────────────────┘
 ```
+
+> **Modo etiquetado:** se activa automáticamente cuando no existe el archivo `.pkl` del modelo. Es el mecanismo para acumular muestras cuando el dataset es insuficiente. Para activarlo manualmente: borrar `modelo_buyv01.pkl` y `modelo_buyv01_metrics.pkl` del directorio `tmp/`.
 
 ---
 
@@ -388,6 +393,8 @@ if __name__ == "__main__":
 
 1. **Balance de Clases**: Usa `class_weight="balanced"` para manejar datasets desbalanceados
 2. **Validación Cruzada**: StratifiedKFold mantiene proporción de clases en cada fold
-3. **Umbrales Ajustables**: Pueden modificarse en BD tabla `modelos_ia`
+3. **Umbrales Ajustables**: Se leen desde BD tabla `modelos_ia`. Buy lee `umbral_buy`, Sell lee `umbral_sell` — claves distintas, no intercambiables
 4. **Timeframes**: Por defecto solo usa diario `["d"]` para reducir features
-5. **NaN Handling**: Elimina columnas con más del 50% de NaN, rellena resto con 0
+5. **NaN Handling**: Elimina columnas con más del 50% de NaN; indicadores con `NaN`/`Infinity` se sanitizan a `null` antes de insertar en BD
+6. **Dataset mínimo**: Se necesitan ~80-100 muestras etiquetadas para que el modelo generalice correctamente. Con menos muestras las métricas CV son poco confiables (alta varianza ±std)
+7. **Modo etiquetado**: Sin `.pkl` el sistema envía todas las oportunidades por Telegram para etiquetado manual — mecanismo para acumular dataset
