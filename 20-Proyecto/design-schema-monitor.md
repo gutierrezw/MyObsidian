@@ -1,7 +1,7 @@
 ---
 tipo: design
 modulo: schema-monitor
-version: 1.3
+version: 2.1
 fecha: 2026-07-12
 status: borrador
 ---
@@ -9,7 +9,7 @@ status: borrador
 # Design — Monitoreo y corrección de schema MySQL
 
 > Origen: [[30-Gestion/debates/debate-2026-07-12-schema-monitoring]] (Fase 1 read-only ya implementada: `get_schema_health`, `get_slow_queries` en `routes/mcp.js`, lógica compartida en `lib/schemaHealth.js`).
-> Este doc formaliza la Fase 2: cómo se programa, persiste y visualiza ese chequeo — sin reabrir [[feedback_cowork_propio_shelved|la idea de "cowork propio"]] descartada el mismo día.
+> Fase 2 (este doc) es el **primer consumidor** de [[design-report-center|Report Center]] — el motor genérico de tabla histórica + página + auth. Acá solo va lo específico de schema health; lo genérico (tabla `reportes_historial`, `ReportManager`, Cloudflare Access) vive en ese doc.
 
 ---
 
@@ -23,61 +23,44 @@ La idea descartada era un scheduler general dependiente de `mcp__scheduled-tasks
 
 ---
 
-## Arquitectura
+## Arquitectura (específica de schema health)
 
 ```
-node-cron (dentro de server-api, PM2)
-    │  1x/día
+node-cron (dentro de server-api, PM2)  — 1x/semana
     ▼
 schemaHealth.js → getSchemaHealth() + getSlowQueries()
-    │
     ▼
-INSERT en tabla schema_health_history (nueva)
-    │
+ReportManager.registrar('schema_health', categoria, referencia, reporteBuffer)   ← ver [[design-report-center]]
     ▼
-GET /schema-report  →  página HTML lee el último snapshot + histórico por digest
-    │
-    ▼
-Botón "🔧 Proponer corrección"  →  sendPrompt-equivalente: abre caso en chat con Code
-                                     (propuesta manual, no ejecución automática — run_schema_fix sigue pausado)
+GET /reports/schema_health  →  página genérica de Report Center
 ```
 
-## Tabla `schema_health_history`
+## Mapeo a los campos genéricos de `reportes_historial`
 
-Permite ver evolución de una misma query/índice entre chequeos (antes/después de una corrección), no solo el último snapshot.
+| Campo genérico | Valor en schema-monitor |
+|-----------------|--------------------------|
+| `tipo_reporte` | `schema_health` |
+| `categoria` | `full_scan`, `indice_sin_uso`, `tabla_grande`, `buffer_pool` |
+| `referencia` | `digest_query` (`SUBSTRING(digest_text,1,80)`) o nombre de tabla, según categoría |
+| `reporte` | Salida completa de `getSchemaHealth()`/`getSlowQueries()` para esa corrida |
 
-| Columna | Tipo | Descripción |
-|---------|------|-------------|
-| `id` | BIGINT AUTO_INCREMENT PK | |
-| `fecha_ejecucion` | DATETIME | Cuándo corrió el chequeo |
-| `tipo_hallazgo` | ENUM('full_scan','indice_sin_uso','tabla_grande','buffer_pool') | Categoría |
-| `tabla_afectada` | VARCHAR(64) | Ej: `market_sentiment` |
-| `digest_query` | VARCHAR(80) | `SUBSTRING(digest_text,1,80)` — identifica la misma query entre corridas |
-| `reporte` | LONGBLOB | Reporte completo de esa corrida (JSON serializado o HTML) — payload libre, no atado a un esquema fijo de columnas |
-| `estado` | ENUM('detectado','propuesto','resuelto','descartado') | Ciclo de vida del hallazgo |
-| `propuesta_correccion` | TEXT NULL | Qué se propuso (índice, rewrite, etc.) |
-| `fecha_resolucion` | DATETIME NULL | Cuándo se marcó resuelto |
+## Parámetros de esta instancia
 
-Índice sugerido: `(digest_query, fecha_ejecucion)` para traer la serie histórica de una query puntual.
-
-`reporte` en BLOB en vez de JSON tipado: cada fila guarda el reporte completo de esa corrida sin depender de columnas fijas — así se pueden acumular varios reportes por fila/caso (o incluso tipos de reporte distintos a futuro, no solo schema health) sin migrar el esquema cada vez que cambia lo que se mide. Las columnas livianas (`tipo_hallazgo`, `tabla_afectada`, `digest_query`, `estado`) siguen siendo las que se filtran/indexan; el BLOB es solo el detalle.
-
-## Página `/schema-report`
-
-- Última corrida: hallazgos activos (estado != resuelto), ordenados por severidad (executions × avg_time)
-- Por hallazgo: mini-serie histórica (¿mejoró o empeoró desde la última corrección?)
-- Botón "🔄 Actualizar" — dispara corrida manual fuera del horario del cron (llama al mismo endpoint que usa el cron)
-- Botón "🔧 Proponer corrección" por hallazgo — abre el caso en chat, no ejecuta nada solo
-- Auth: **Cloudflare Access** (Zero Trust) delante de la ruta `/schema-report` en el tunnel `api-main.wildaga.com`. Cloudflare intercepta en el edge y pide login (código de un solo uso al email, o Google) antes de que la request llegue a `server-api` — no hay API key que manejar ni pegar en el celular. Sesión queda en cookie de Cloudflare (configurable, ej. 7 días). La `X-API-Key` interna sigue existiendo entre Cloudflare↔servidor si hace falta, pero el usuario nunca la ve. Gratis hasta 50 usuarios, reutiliza el tunnel que ya existe. Se descartaron login liviano (pegar API key — no transparente para uso desde celular) y OAuth propio (pensado para clientes de terceros tipo claude.ai, sobra para un solo usuario)
+- **Frecuencia del cron:** 1x/semana, de madrugada (ej. lunes 3am) — no compite con el pipeline 13F ni el uso normal de la app
+- **Umbral de severidad:** un hallazgo aparece como "activo" si `rows_examined` total de esa corrida supera 10M filas (el caso de `market_sentiment` está en ~1.38B — bien por encima; se ajusta con datos reales más adelante)
+- **Quién marca `estado = resuelto`:** manual (vos o Code en sesión), sin automatización
+- **Botón "🔧 Proponer corrección":** abre el caso en chat — propuesta manual, no ejecuta nada solo (`run_schema_fix` sigue pausado)
 
 ---
 
 ## Pendientes de decisión
 
-- [x] Auth de la página — **Cloudflare Access** delante del tunnel, login por email OTP/Google en el edge. Sin API key manual, sin OAuth propio
-- [ ] Frecuencia del cron (propuesta inicial: 1x/día)
-- [ ] Umbral de severidad para listar un hallazgo como "activo" en la página
-- [ ] Quién marca `estado = resuelto` — manual (vos/Code) por ahora, sin automatización
+- [x] Auth — resuelto a nivel Report Center (Cloudflare Access, ver [[design-report-center]])
+- [x] Frecuencia del cron — 1x/semana, madrugada
+- [x] Umbral de severidad — `rows_examined` > 10M por corrida
+- [x] Quién marca `resuelto` — manual (vos/Code)
+
+Sin pendientes abiertos — diseño listo para pasar a implementación.
 
 ## Historial
 
@@ -86,4 +69,6 @@ Permite ver evolución de una misma query/índice entre chequeos (antes/después
 | 1.0 | 2026-07-12 | Versión inicial — diseño Fase 2 (cron + tabla histórica + página) |
 | 1.1 | 2026-07-12 | `metricas JSON` → `reporte LONGBLOB` — permite acumular varios reportes por caso sin esquema fijo |
 | 1.2 | 2026-07-12 | Auth decidido: login liviano con `api_key` en `localStorage`, se descarta OAuth |
-| 1.3 | 2026-07-12 | Auth revertido a **Cloudflare Access** — pegar API key no era viable desde celular. Sin credencial manual, login por email OTP/Google en el edge |
+| 1.3 | 2026-07-12 | Auth revertido a **Cloudflare Access** — pegar API key no era viable desde celular |
+| 2.0 | 2026-07-12 | Generalizado: tabla/página/auth extraídos a [[design-report-center]] (motor reutilizable). Este doc queda como su primer consumidor. Cerrados los 3 pendientes restantes (frecuencia, umbral, resolución manual) |
+| 2.1 | 2026-07-12 | Frecuencia del cron: 1x/día → 1x/semana |

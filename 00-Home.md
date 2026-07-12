@@ -65,7 +65,8 @@
 | [[20-Proyecto/spec-multi-agent\|Multi-Agent Debate]] | Arquitectura debate IA |
 | [[20-Proyecto/ref-mcp-conectores\|Conectores MCP]] | Resumen conectores |
 | [[10-Memoria/ref-arquitectura-claude-github\|Arquitectura Claude ↔ GitHub]] | Dos caminos de acceso (Code local vs Cowork público), bug conector GitHub, config MCP |
-| [[20-Proyecto/design-schema-monitor\|Schema Monitor (Fase 2)]] | Cron propio + tabla histórica + página `/schema-report` — evolución de hallazgos/correcciones |
+| [[20-Proyecto/design-report-center\|Report Center]] | Motor genérico reutilizable: tabla histórica + página `/reports/:tipo` + Cloudflare Access — base para cualquier reporte futuro |
+| [[20-Proyecto/design-schema-monitor\|Schema Monitor (Fase 2)]] | Primer consumidor de Report Center — cron de salud de schema MySQL, evolución de hallazgos/correcciones |
 
 ### Finanzas y usuario
 | Doc | Descripción |
