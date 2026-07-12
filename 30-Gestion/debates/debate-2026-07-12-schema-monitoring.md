@@ -1,13 +1,13 @@
 ---
 tipo: debate
-estado: Abierto — esperando perspectiva Desktop
+estado: Abierto — ambas perspectivas escritas, falta síntesis
 ---
 
 # Debate — Tools MCP para monitoreo y corrección de schema MySQL
 
 **Fecha:** 2026-07-12
 **Propuesto por:** usuario (sesión VS Code)
-**Estado:** 🟡 Abierto — Code escribió, falta Desktop
+**Estado:** 🟡 Abierto — ambas perspectivas escritas, falta síntesis
 
 ---
 
@@ -50,13 +50,20 @@ estado: Abierto — esperando perspectiva Desktop
 ## 🖱️ Perspectiva Desktop
 *Lente: valor estratégico, experiencia de uso, ROI, simplicidad, visión de largo plazo*
 
-> **[Pendiente — Claude Desktop completa esta sección]**
->
-> Sugerencia de qué evaluar:
-> - ¿Con qué frecuencia real necesitarías corregir el schema? ¿Justifica la infraestructura?
-> - ¿El script existente es realmente un problema o es suficiente?
-> - ¿Hay algo que Code no está viendo desde su lente de implementación?
-> - ¿Qué pasa si en 6 meses el schema está estable — sigue siendo útil el tool?
+**Postura:** A favor de Fase 1 (solo lectura) ya mismo — `run_schema_fix` mejor diferido hasta que haya una necesidad real confirmada
+
+**Puntos clave:**
+- La visión del proyecto es 24x7 + portabilidad (posible escenario sin laptop a mano, cortes de luz/internet, retorno a Venezuela). Poder chequear salud del schema desde el teléfono sin abrir VS Code es exactamente el tipo de resiliencia que se busca — eso solo ya justifica `get_schema_health` y `get_slow_queries`, independiente de cuán seguido se usen.
+- El costo es bajo (2-3h, mismo patrón ya probado en `routes/mcp.js`) y el valor de monitoreo no caduca: `fund_holdings` ya tiene 1.16M filas y sigue creciendo con el pipeline 13F diario/semanal — más motivo para tener visibilidad remota, no menos, aunque el schema hoy esté estable.
+- Dudo del ROI de `run_schema_fix` en particular: un `CREATE INDEX` casi siempre nace junto con un cambio de código (se agrega una tabla o columna nueva → se agrega su índice) — eso pasa en sesión Code, no en un chat desde el celular. No veo todavía el escenario real donde hace falta corregir schema sin tocar código al mismo tiempo.
+- Mismo criterio que propuso Code para el otro debate (umbral N=2, no construir especulativamente): si en las próximas semanas se repite de verdad la necesidad de corregir algo desde Desktop sin pasar por Code, ahí se justifica construirlo.
+
+**Riesgos que veo:**
+- Construir `run_schema_fix` ahora es superficie de ataque + mantenimiento (whitelist, audit) para un caso de uso todavía no confirmado — si no se usa, queda código con permisos de escritura sobre la BD real sin necesidad real detrás.
+- Lo inverso también aplica: si NO se construyen los tools de solo lectura, se sigue dependiendo de abrir laptop/VS Code para diagnosticar un problema de performance — eso choca directo con la visión de reducir intervención manual.
+
+**Conclusión estratégica:**
+Construir ya `get_schema_health` y `get_slow_queries` (Fase 1 de Code). Pausar `run_schema_fix` — no por desconfianza en la salvaguarda técnica (la whitelist + `confirm=true` que propone Code está bien pensada), sino porque falta evidencia de que el caso de uso ocurra en la práctica. Retomarlo cuando aparezca la primera vez real que se necesite.
 
 ---
 
@@ -76,4 +83,4 @@ estado: Abierto — esperando perspectiva Desktop
 | Fecha | Quién | Acción |
 |-------|-------|--------|
 | 2026-07-12 | Code | Escribió perspectiva inicial |
-| | Desktop | Pendiente |
+| 2026-07-12 | Desktop | Escribió perspectiva estratégica — a favor de Fase 1 (solo lectura), pausar `run_schema_fix` |
