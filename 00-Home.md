@@ -61,7 +61,6 @@
 |-----|-------------|
 | [[20-Proyecto/design-api-server\|server-api Node]] | Bridge AppOO ↔ TradingView/co-work (3 fases) |
 | [[20-Proyecto/ref-cowork-tools\|Co-work Tools]] | Tools MCP disponibles para Claude + gaps actuales |
-| [[20-Proyecto/spec-github-mcp\|GitHub MCP]] | Especificación MCP |
 | [[20-Proyecto/spec-convergia\|ConvergIA]] | Especificación multi-agente |
 | [[20-Proyecto/spec-multi-agent\|Multi-Agent Debate]] | Arquitectura debate IA |
 | [[20-Proyecto/ref-mcp-conectores\|Conectores MCP]] | Resumen conectores |
@@ -80,7 +79,7 @@
 - **Cuenta stock:** U4214563
 - **Cuenta crypto:** B0000001 / B0000002
 - **DB:** MySQL 8.x — schema `bdinv`
-- **Branch docs:** `docs` (fuente de verdad para .md)
+- **Branch docs:** `Appoo` (fuente de verdad para .md)
 
 ---
 
