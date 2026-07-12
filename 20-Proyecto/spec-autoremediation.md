@@ -2,11 +2,13 @@
 
 ## Objetivo
 
-Sistema de monitoreo continuo que detecta fallos y mide calidad de código,
-los registra en BD con trazabilidad histórica y los expone en la UI (tab System).
-Sienta las bases para remediación automática asistida por IA en fases posteriores.
+Sistema de monitoreo continuo que detecta fallos de **AppOO como aplicación** (excepciones,
+agentes caídos, calidad de código) y mide calidad de código, los registra en BD con
+trazabilidad histórica y los expone en la UI (tab System). Sienta las bases para
+remediación automática asistida por IA en fases posteriores.
 
-> Desempeño BD (schema MySQL) queda **fuera del alcance de este doc** — cubierto end-to-end por [[design-report-center]]/[[design-schema-monitor]] (`server-api/lib/schemaHealth.js` → `reportes_historial` → `/reports/schema_health`). No se duplica acá.
+> Este doc es exclusivamente sobre la app (AppOO). El schema de MySQL es infraestructura,
+> no una falla de la app — no es un tema relacionado, vive aparte en [[design-schema-monitor]]/[[design-report-center]].
 
 ---
 
@@ -48,8 +50,7 @@ Panel "Fallos & Métricas" dentro del tab System existente:
 |---------|-----------|
 | Fallos recientes | Treeview: fecha / módulo / tipo / mensaje / ocurrencias |
 | Calidad código | Última snapshot: líneas, métodos, hallazgos vulture (con delta) |
-| Desempeño BD | Link/embed a `/reports/schema_health` (Report Center) — no se re-consulta ni re-almacena acá |
-| Tendencia | Mini-gráfico o tabla histórica de métricas clave (fallos + calidad código; BD la tiene el Report Center) |
+| Tendencia | Mini-gráfico o tabla histórica de métricas clave (fallos + calidad código) |
 
 ---
 
@@ -93,7 +94,7 @@ CREATE TABLE app_metrics (
 );
 ```
 
-> `bd_metrics` se eliminó de este diseño (2026-07-12) — era una tabla paralela a `reportes_historial` para el mismo dato. Desempeño BD vive solo en [[design-report-center]].
+> `bd_metrics` se eliminó de este diseño (2026-07-12) — no era una tabla de este dominio. Desempeño BD (infraestructura) vive en [[design-report-center]], sin relación con Auto-Remediación (app).
 
 ---
 
@@ -107,7 +108,7 @@ CREATE TABLE app_metrics (
 Todos viven en `Class_DashBot.py` como coordinadores puros.
 La lógica de parseo/análisis va en clases dueñas del dominio (por definir).
 
-No hay `Agente_MetricasBD` acá — el trigger semanal de [[design-schema-monitor]] (Task Scheduler → `server-api`) ya cubre esa persistencia end-to-end, sin pasar por `Class_DashBot.py`.
+No hay `Agente_MetricasBD` acá — desempeño de BD no es un fallo de AppOO, es infraestructura y vive aparte en [[design-schema-monitor]].
 
 ---
 
@@ -117,7 +118,7 @@ No hay `Agente_MetricasBD` acá — el trigger semanal de [[design-schema-monito
 |------|-------|-----------|
 | **1** | Definir BD: tablas `fallos`, `app_metrics` | Alta |
 | **2** | Crear agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` | Alta |
-| **3** | UI en tab System: panel "Fallos & Métricas" con Treeview + resumen (Desempeño BD = link a `/reports/schema_health`) | Media |
+| **3** | UI en tab System: panel "Fallos & Métricas" con Treeview + resumen | Media |
 | **4** | Auto-remediación IA: feed vulture → Claude API → fix automático | Futura |
 
 ---
