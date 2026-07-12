@@ -1,6 +1,6 @@
 ---
 tipo: debate
-estado: Abierto — ambas perspectivas escritas, falta síntesis
+estado: Cerrado — consenso alcanzado
 ---
 
 # Debate — Tools MCP para monitoreo y corrección de schema MySQL
@@ -67,15 +67,36 @@ Construir ya `get_schema_health` y `get_slow_queries` (Fase 1 de Code). Pausar `
 
 ---
 
-## 🔄 Réplicas (si aplica)
+## 🔄 Réplicas
 
-*[Se completa después de que Desktop escriba su perspectiva]*
+No hubo desacuerdo real — ambas perspectivas convergieron en la misma dirección sin necesidad de ronda adicional.
 
 ---
 
 ## 🎯 Síntesis
 
-*[Se completa cuando ambas perspectivas estén escritas]*
+**Consenso:** ✅ Sí — total en Fase 1, parcial en Fase 2
+
+**Puntos de acuerdo:**
+- `get_schema_health` y `get_slow_queries` (read-only): construir ya. Bajo riesgo, alto valor, costo 2-3h, patrón ya probado en `routes/mcp.js`.
+- La visión de portabilidad/resiliencia del proyecto (acceso desde celular, sin laptop) justifica los tools de lectura independientemente de la frecuencia de uso actual.
+- `run_schema_fix`: **pausar** — la salvaguarda técnica (whitelist + `confirm=true`) está bien pensada según Code, pero Desktop señala que falta evidencia de que el caso de uso ocurra en la práctica. Un `CREATE INDEX` casi siempre nace junto con un cambio de código, lo que pasa en sesión Code, no desde el chat.
+
+**Punto de desacuerdo resuelto:**
+Code propuso los 3 tools juntos. Desktop separó en fases por criterio de evidencia. Ganó Desktop: construir solo lo que tiene caso de uso confirmado.
+
+**Decisión:**
+> Implementar **Fase 1**: `get_schema_health` + `get_slow_queries` en `routes/mcp.js`.
+> Pausar `run_schema_fix` hasta que aparezca la primera necesidad real de corregir schema desde Desktop sin pasar por Code.
+
+**Condiciones acordadas:**
+- Ambos tools son read-only, se logean en `mcp_audit.jsonl`
+- `get_schema_health` incluye: tablas sin índices secundarios, full scans frecuentes, config InnoDB vs recomendado, tamaño tablas críticas
+- `get_slow_queries` incluye: filtro por tabla, umbral tiempo, frecuencia
+- Si `run_schema_fix` se necesita en el futuro → debate no requerido, construirlo directamente (ya tiene diseño aprobado)
+
+**Acción concreta:**
+Ítem nuevo en backlog → Code implementa `get_schema_health` + `get_slow_queries` en próxima sesión VS Code. Desktop los activa para monitoreo recurrente (sugerido: lunes 8am junto al reporte HTML existente).
 
 ---
 
@@ -84,3 +105,4 @@ Construir ya `get_schema_health` y `get_slow_queries` (Fase 1 de Code). Pausar `
 |-------|-------|--------|
 | 2026-07-12 | Code | Escribió perspectiva inicial |
 | 2026-07-12 | Desktop | Escribió perspectiva estratégica — a favor de Fase 1 (solo lectura), pausar `run_schema_fix` |
+| 2026-07-12 | Code | Síntesis — consenso alcanzado. Fase 1 aprobada, run_schema_fix pausado |

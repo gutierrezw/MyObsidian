@@ -15,6 +15,7 @@ Historial de versiones al final del archivo.
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
 | 67 | **Stock/UI** | Panel trades IB en la app — visualizar los trades ejecutados en IB (últimos 7 días al arranque, solo día actual en adelante). Útil para auditar operaciones que no se registraron en booktrading sin tener que salir de la app. Vista de solo lectura, sin inserción directa para no descontrolar inventario. | Media |
+| 69 | **Infraestructura/MCP** | Tools MCP schema MySQL Fase 1 — agregar `get_schema_health` + `get_slow_queries` (read-only) en `routes/mcp.js`. Resultado del debate `debate-2026-07-12-schema-monitoring.md`. `run_schema_fix` pausado hasta caso de uso real. Logear en `mcp_audit.jsonl`. | Media |
 | 68 | **Infraestructura/MCP** | Tools MCP bajo demanda + detección de recurrencia — agregar tools específicos en `routes/mcp.js` cuando una consulta se repite. Evitar SQL libre (riesgo Tunnel). **Criterio manual:** si Claude hizo el mismo script externo más de una vez → candidato a tool. **Criterio automático (idea):** loguear queries recurrentes en sesiones de co-work (VS Code + Desktop) → cuando un patrón se repite N veces → sugerir o auto-crear el endpoint. Objetivo: reducir fricción progresivamente sin intervención manual cada vez. | Baja |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
