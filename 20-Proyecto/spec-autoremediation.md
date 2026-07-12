@@ -40,7 +40,7 @@ El agente lee el log del día, agrupa fallos por módulo+mensaje, descarta los e
 ---
 
 ### 3. Desempeño BD — mensual
-**Fuente:** `SchemasSQL/mysql_index_analyzer.py` (ya implementado, ya tiene scheduled lunes 8am)
+**Fuente:** `MyNode/mysql-weekly-report/report.js` + `analyze-fullscan.js` (ya implementado, scheduled vía Windows Task Scheduler lunes 8am — ver [[design-report-center]] para el motor genérico que reemplazaría esta persistencia ad-hoc)
 
 Métricas a registrar:
 - Queries lentas (slow_query_log)
@@ -125,7 +125,7 @@ CREATE TABLE bd_metrics (
 |--------|-----------|--------|---------|
 | `Agente_FallosLog` | Diario | log rotativo | tabla `fallos` |
 | `Agente_MetricasCodigo` | Cada 15 días | weekly_report.py | tabla `app_metrics` |
-| `Agente_MetricasBD` | Mensual | mysql_index_analyzer.py | tabla `bd_metrics` |
+| `Agente_MetricasBD` | Mensual | mysql-weekly-report (Node) | tabla `bd_metrics` |
 
 Todos viven en `Class_DashBot.py` como coordinadores puros.
 La lógica de parseo/análisis va en clases dueñas del dominio (por definir).
@@ -146,7 +146,7 @@ La lógica de parseo/análisis va en clases dueñas del dominio (por definir).
 ## Notas técnicas
 
 - `weekly_report.py` requiere refactor mínimo: `generate()` debe retornar dict además de imprimir.
-- `mysql_index_analyzer.py` ya genera reporte — solo agregar persistencia en `bd_metrics`.
+- `mysql-weekly-report/report.js` ya genera reporte (HTML local) — falta persistencia en BD, ya sea `bd_metrics` o la tabla genérica `reportes_historial` de [[design-report-center]].
 - El parseo del log debe ser robusto: el formato es `timestamp - LEVEL - module - thread - message`.
 - Fallos "esperados" (IBroks sin gateway) → configurar whitelist para no registrar como fallo real.
 - Toda la lógica de parseo/BD en clases separadas — los agentes solo coordinan.
