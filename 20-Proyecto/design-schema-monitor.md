@@ -1,7 +1,7 @@
 ---
 tipo: design
 modulo: schema-monitor
-version: 1.1
+version: 1.3
 fecha: 2026-07-12
 status: borrador
 ---
@@ -68,13 +68,13 @@ Permite ver evolución de una misma query/índice entre chequeos (antes/después
 - Por hallazgo: mini-serie histórica (¿mejoró o empeoró desde la última corrección?)
 - Botón "🔄 Actualizar" — dispara corrida manual fuera del horario del cron (llama al mismo endpoint que usa el cron)
 - Botón "🔧 Proponer corrección" por hallazgo — abre el caso en chat, no ejecuta nada solo
-- Auth: pendiente definir (login liviano vs. reusar OAuth existente — ver sección Pendientes)
+- Auth: **Cloudflare Access** (Zero Trust) delante de la ruta `/schema-report` en el tunnel `api-main.wildaga.com`. Cloudflare intercepta en el edge y pide login (código de un solo uso al email, o Google) antes de que la request llegue a `server-api` — no hay API key que manejar ni pegar en el celular. Sesión queda en cookie de Cloudflare (configurable, ej. 7 días). La `X-API-Key` interna sigue existiendo entre Cloudflare↔servidor si hace falta, pero el usuario nunca la ve. Gratis hasta 50 usuarios, reutiliza el tunnel que ya existe. Se descartaron login liviano (pegar API key — no transparente para uso desde celular) y OAuth propio (pensado para clientes de terceros tipo claude.ai, sobra para un solo usuario)
 
 ---
 
 ## Pendientes de decisión
 
-- [ ] Auth de la página para navegador (no puede mandar `X-API-Key` por header simple) — login liviano vs. OAuth existente
+- [x] Auth de la página — **Cloudflare Access** delante del tunnel, login por email OTP/Google en el edge. Sin API key manual, sin OAuth propio
 - [ ] Frecuencia del cron (propuesta inicial: 1x/día)
 - [ ] Umbral de severidad para listar un hallazgo como "activo" en la página
 - [ ] Quién marca `estado = resuelto` — manual (vos/Code) por ahora, sin automatización
@@ -85,3 +85,5 @@ Permite ver evolución de una misma query/índice entre chequeos (antes/después
 |---------|-------|--------|
 | 1.0 | 2026-07-12 | Versión inicial — diseño Fase 2 (cron + tabla histórica + página) |
 | 1.1 | 2026-07-12 | `metricas JSON` → `reporte LONGBLOB` — permite acumular varios reportes por caso sin esquema fijo |
+| 1.2 | 2026-07-12 | Auth decidido: login liviano con `api_key` en `localStorage`, se descarta OAuth |
+| 1.3 | 2026-07-12 | Auth revertido a **Cloudflare Access** — pegar API key no era viable desde celular. Sin credencial manual, login por email OTP/Google en el edge |
