@@ -100,11 +100,11 @@ Code propuso los 3 tools juntos. Desktop separó en fases por criterio de eviden
 
 ---
 
-## 📌 Actualización — mismo esquema, un solo objetivo
+## 📌 Actualización — mismo esquema, una sola versión
 
 El "reporte HTML existente" de la línea de arriba (línea 99) y el Fase 2 diseñado después en [[design-schema-monitor]] son el mismo caso, no dos: `MyNode/mysql-weekly-report/report.js`, ya corriendo lunes 8am vía Task Scheduler. El debate original citaba mal el nombre del script (`mysql_index_analyzer.py`, un Python que nunca se construyó) — corregido arriba.
 
-Consecuencia: [[design-schema-monitor]] no levanta un cron nuevo — extiende este mismo script existente con un POST a `/internal/report` para persistir en la tabla genérica de [[design-report-center]]. Los MCP tools de este debate (`get_schema_health`/`get_slow_queries`) siguen siendo el camino read-only/on-demand; el Report Center es el camino histórico/snapshot sobre la misma corrida semanal.
+**Decisión final (2026-07-12):** no conviven dos implementaciones de la lógica de análisis. `server-api/lib/schemaHealth.js` (la misma que ya usan `get_schema_health`/`get_slow_queries`, Fase 1 de este debate) queda como única fuente — la usan tanto los MCP tools (lectura viva) como la corrida semanal persistida en [[design-report-center]]. `mysql-weekly-report` se retira: Windows Task Scheduler pasa a disparar un trigger HTTP delgado (`POST /internal/reports/schema_health/run`) en vez de correr su propia copia de la lógica.
 
 ---
 
@@ -115,3 +115,4 @@ Consecuencia: [[design-schema-monitor]] no levanta un cron nuevo — extiende es
 | 2026-07-12 | Desktop | Escribió perspectiva estratégica — a favor de Fase 1 (solo lectura), pausar `run_schema_fix` |
 | 2026-07-12 | Code | Síntesis — consenso alcanzado. Fase 1 aprobada, run_schema_fix pausado |
 | 2026-07-12 | Code | Corregida referencia al script (era Python inexistente, es `mysql-weekly-report` Node) y unificado con [[design-schema-monitor]]/[[design-report-center]] — mismo esquema, un solo objetivo |
+| 2026-07-12 | Code | Decisión final: `schemaHealth.js` único dueño de la lógica (usuario eligió server-api sobre mantener `mysql-weekly-report` independiente). `mysql-weekly-report` se retira |

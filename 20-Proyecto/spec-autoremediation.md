@@ -2,9 +2,11 @@
 
 ## Objetivo
 
-Sistema de monitoreo continuo que detecta fallos, mide calidad y desempeño de la app,
+Sistema de monitoreo continuo que detecta fallos y mide calidad de código,
 los registra en BD con trazabilidad histórica y los expone en la UI (tab System).
 Sienta las bases para remediación automática asistida por IA en fases posteriores.
+
+> Desempeño BD (schema MySQL) queda **fuera del alcance de este doc** — cubierto end-to-end por [[design-report-center]]/[[design-schema-monitor]] (`server-api/lib/schemaHealth.js` → `reportes_historial` → `/reports/schema_health`). No se duplica acá.
 
 ---
 
@@ -39,28 +41,15 @@ El agente lee el log del día, agrupa fallos por módulo+mensaje, descarta los e
 
 ---
 
-### 3. Desempeño BD — mensual
-**Fuente:** `MyNode/mysql-weekly-report/report.js` + `analyze-fullscan.js` (ya implementado, scheduled vía Windows Task Scheduler lunes 8am — ver [[design-report-center]] para el motor genérico que reemplazaría esta persistencia ad-hoc)
-
-Métricas a registrar:
-- Queries lentas (slow_query_log)
-- Índices sin uso / full scans detectados
-- Configuración InnoDB vs baseline óptimo
-- Tamaño de tablas críticas (fund_holdings, market, booktrading, etc.)
-
-**Acción futura:** sugerir nuevos índices o ANALYZE TABLE según hallazgos.
-
----
-
-### 4. UI — Tab System (nueva sección)
+### 3. UI — Tab System (nueva sección)
 Panel "Fallos & Métricas" dentro del tab System existente:
 
 | Sección | Contenido |
 |---------|-----------|
 | Fallos recientes | Treeview: fecha / módulo / tipo / mensaje / ocurrencias |
 | Calidad código | Última snapshot: líneas, métodos, hallazgos vulture (con delta) |
-| Desempeño BD | Último reporte: queries lentas, índices, tamaño tablas |
-| Tendencia | Mini-gráfico o tabla histórica de métricas clave |
+| Desempeño BD | Link/embed a `/reports/schema_health` (Report Center) — no se re-consulta ni re-almacena acá |
+| Tendencia | Mini-gráfico o tabla histórica de métricas clave (fallos + calidad código; BD la tiene el Report Center) |
 
 ---
 
@@ -104,18 +93,7 @@ CREATE TABLE app_metrics (
 );
 ```
 
-### Tabla `bd_metrics`
-```sql
-CREATE TABLE bd_metrics (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    fecha           DATE NOT NULL,
-    slow_queries    INT,
-    full_scans      INT,
-    unused_indexes  INT,
-    report_html     LONGTEXT,
-    UNIQUE KEY uk_fecha (fecha)
-);
-```
+> `bd_metrics` se eliminó de este diseño (2026-07-12) — era una tabla paralela a `reportes_historial` para el mismo dato. Desempeño BD vive solo en [[design-report-center]].
 
 ---
 
@@ -125,10 +103,11 @@ CREATE TABLE bd_metrics (
 |--------|-----------|--------|---------|
 | `Agente_FallosLog` | Diario | log rotativo | tabla `fallos` |
 | `Agente_MetricasCodigo` | Cada 15 días | weekly_report.py | tabla `app_metrics` |
-| `Agente_MetricasBD` | Mensual | mysql-weekly-report (Node) | tabla `bd_metrics` |
 
 Todos viven en `Class_DashBot.py` como coordinadores puros.
 La lógica de parseo/análisis va en clases dueñas del dominio (por definir).
+
+No hay `Agente_MetricasBD` acá — el trigger semanal de [[design-schema-monitor]] (Task Scheduler → `server-api`) ya cubre esa persistencia end-to-end, sin pasar por `Class_DashBot.py`.
 
 ---
 
@@ -136,9 +115,9 @@ La lógica de parseo/análisis va en clases dueñas del dominio (por definir).
 
 | Fase | Tarea | Prioridad |
 |------|-------|-----------|
-| **1** | Definir BD: tablas `fallos`, `app_metrics`, `bd_metrics` | Alta |
-| **2** | Crear agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Alta |
-| **3** | UI en tab System: panel "Fallos & Métricas" con Treeview + resumen | Media |
+| **1** | Definir BD: tablas `fallos`, `app_metrics` | Alta |
+| **2** | Crear agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` | Alta |
+| **3** | UI en tab System: panel "Fallos & Métricas" con Treeview + resumen (Desempeño BD = link a `/reports/schema_health`) | Media |
 | **4** | Auto-remediación IA: feed vulture → Claude API → fix automático | Futura |
 
 ---
@@ -146,7 +125,6 @@ La lógica de parseo/análisis va en clases dueñas del dominio (por definir).
 ## Notas técnicas
 
 - `weekly_report.py` requiere refactor mínimo: `generate()` debe retornar dict además de imprimir.
-- `mysql-weekly-report/report.js` ya genera reporte (HTML local) — falta persistencia en BD, ya sea `bd_metrics` o la tabla genérica `reportes_historial` de [[design-report-center]].
 - El parseo del log debe ser robusto: el formato es `timestamp - LEVEL - module - thread - message`.
 - Fallos "esperados" (IBroks sin gateway) → configurar whitelist para no registrar como fallo real.
 - Toda la lógica de parseo/BD en clases separadas — los agentes solo coordinan.

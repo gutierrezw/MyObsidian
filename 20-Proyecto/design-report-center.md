@@ -1,7 +1,7 @@
 ---
 tipo: design
 modulo: report-center
-version: 1.1
+version: 2.0
 fecha: 2026-07-12
 status: borrador
 ---
@@ -18,12 +18,14 @@ status: borrador
 
 ## Arquitectura
 
+**Principio: un solo dueño de la lógica por dominio, vive siempre dentro de `server-api`.** Lo único que puede ser externo es el *disparador* (qué dispara cuándo corre) — nunca el *cómputo*. Evita el problema real que motivó esta reconciliación: `mysql-weekly-report` tenía su propia copia de la lógica de schema health corriendo por fuera, duplicando `lib/schemaHealth.js`.
+
 ```
-Cualquier dominio — dentro de server-api (schemaHealth.js, ibReconcile.js, ...)
-  o un script externo ya agendado (mysql-weekly-report vía Task Scheduler, ...)
-    │
-    │  interno: llama ReportManager.registrar() directo
-    │  externo: POST /internal/report  (mismo patrón que AppOO → /internal/update)
+Disparador — interno (node-cron dentro de server-api) o externo (Windows Task Scheduler, trigger delgado sin lógica)
+    ▼
+POST /internal/reports/:tipo/run   (si el disparador es externo; interno llama directo)
+    ▼
+Módulo dueño del dominio (schemaHealth.js, ibReconcile.js, ...)  ← ÚNICA implementación, la reusan también los MCP tools/REST si aplica
     ▼
 ReportManager.registrar(tipoReporte, categoria, referencia, reporteBuffer)
     │
@@ -39,7 +41,7 @@ Botón "🔧 Proponer corrección"  →  abre caso en chat (genérico, no ejecut
 
 Cloudflare Access protege `/reports/*` completo — un solo setup de auth sirve para todos los reportes presentes y futuros, no uno por tipo.
 
-**Importante:** el motor no asume que cada reporte necesita un cron nuevo dentro de `server-api`. Si ya existe un proceso agendado en otro lado (ej. Windows Task Scheduler) que genera el dato, el punto de integración es un simple POST al terminar su corrida — no se duplica el disparador. [[design-schema-monitor]] (primer consumidor) usa este camino: `mysql-weekly-report/report.js` ya corría solo, se le agrega el POST.
+[[design-schema-monitor]] (primer consumidor) usa el camino externo: Windows Task Scheduler ya corre lunes 8am (antes disparaba `mysql-weekly-report/report.js` con su propia lógica) — se repunta para que solo dispare `POST /internal/reports/schema_health/run`, sin cómputo propio. `mysql-weekly-report` se retira.
 
 ## Tabla `reportes_historial`
 
@@ -68,13 +70,14 @@ Dueña del dominio "reportes" — cada módulo que genera un reporte la llama, n
 | `historico(tipoReporte, referencia)` | Serie histórica de un caso puntual |
 | `marcarResuelto(id, propuestaCorreccion)` | Cierra un hallazgo |
 
-`routes/reports.js` expone `GET /reports/:tipo` — página genérica, misma UI para cualquier `tipo_reporte`. Los crons de cada dominio (ej. `schemaHealth.js`) solo llaman `ReportManager.registrar(...)` al final de su corrida — coordinador simple, la lógica de qué medir sigue viviendo en el módulo dueño de ese dominio.
+`routes/reports.js` expone `GET /reports/:tipo` y `POST /internal/reports/:tipo/run` (trigger genérico, requiere `X-API-Key`) — el módulo dueño del dominio (ej. `schemaHealth.js`) hace su chequeo y llama `ReportManager.registrar(...)` al final; coordinador simple, la lógica de qué medir vive únicamente en ese módulo, nunca fuera de `server-api`.
 
 ## Cómo se suma un reporte nuevo
 
-1. El módulo dueño del dominio corre su chequeo — dentro de `server-api` (igual que `schemaHealth.js`) o como script externo ya agendado en Task Scheduler
-2. Llama `ReportManager.registrar('nuevo_tipo', categoria, referencia, buffer)` directo, o hace `POST /internal/report` si corre fuera de `server-api`
-3. Ya aparece en `/reports/nuevo_tipo` — sin tocar auth, tabla ni página
+1. El módulo dueño del dominio se implementa **dentro de `server-api`** (igual que `schemaHealth.js`) — aunque el disparo venga de afuera (Task Scheduler u otro), el cómputo no sale de acá
+2. Se registra su `tipo_reporte` en `routes/reports.js` para que `POST /internal/reports/:tipo/run` sepa qué módulo invocar
+3. Al terminar, llama `ReportManager.registrar('nuevo_tipo', categoria, referencia, buffer)`
+4. Ya aparece en `/reports/nuevo_tipo` — sin tocar auth, tabla ni página
 
 ## Estilo visual
 
@@ -93,3 +96,4 @@ La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_repor
 | 1.0 | 2026-07-12 | Extraído de design-schema-monitor al generalizar el patrón |
 | 1.1 | 2026-07-12 | Agregada sección Estilo visual — se tunea en Fase 1 (schema_health) y se congela como estándar para reportes futuros |
 | 1.2 | 2026-07-12 | Aclarado que el disparador puede ser un proceso externo ya agendado (vía `POST /internal/report`), no solo un cron interno de `server-api` — motivado por descubrir que `mysql-weekly-report` ya cubría el primer consumidor |
+| 2.0 | 2026-07-12 | **Principio explícito: un solo dueño de la lógica, siempre dentro de `server-api`** — solo el disparador puede ser externo, nunca el cómputo. Usuario eligió esta opción sobre mantener `mysql-weekly-report` independiente. Endpoint de trigger nombrado: `POST /internal/reports/:tipo/run`. `mysql-weekly-report` se retira (ver [[design-schema-monitor]] para el plan de migración) |

@@ -1,7 +1,7 @@
 ---
 tipo: design
 modulo: schema-monitor
-version: 2.1
+version: 3.0
 fecha: 2026-07-12
 status: borrador
 ---
