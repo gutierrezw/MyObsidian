@@ -3,7 +3,7 @@ tipo: design
 modulo: schema-monitor
 version: 3.0
 fecha: 2026-07-12
-status: borrador
+status: implementado (backend, falta Task Scheduler + UI)
 ---
 
 # Design — Monitoreo y corrección de schema MySQL
@@ -63,7 +63,7 @@ GET /reports/schema_health  →  página genérica de Report Center (Cloudflare 
 ## Parámetros de esta instancia
 
 - **Frecuencia:** 1x/semana, lunes 8am — la que ya tiene "Reporte Semanal MySQL" en Task Scheduler, sin cambios
-- **Umbral de severidad:** un hallazgo aparece como "activo" si `rows_examined` total de esa corrida supera 10M filas (el caso de `market_sentiment` está en ~1.38B — bien por encima; se ajusta con datos reales más adelante)
+- **Umbral de severidad:** un hallazgo aparece como "activo" si `rows_examined` total de esa corrida supera 10M filas (el caso de `market_sentiment` está en ~1.38B — bien por encima; se ajusta con datos reales más adelante). **⚠️ No implementado aún** — `routes/reports.js` hoy registra los 10 `full_scan` que devuelve `schemaHealth.js` sin filtrar por umbral; pendiente decidir si el filtro va en `schemaHealth.js` o al registrar en `ReportManager`
 - **Quién marca `estado = resuelto`:** manual (vos o Code en sesión), sin automatización
 - **Botón "🔧 Proponer corrección":** abre el caso en chat — propuesta manual, no ejecuta nada solo (`run_schema_fix` sigue pausado)
 
@@ -90,3 +90,4 @@ Sin pendientes abiertos. Implementación = (a) repuntar Task Scheduler a un trig
 | 2.1 | 2026-07-12 | Frecuencia del cron: 1x/día → 1x/semana |
 | 2.2 | 2026-07-12 | Unificado con `MyNode/mysql-weekly-report/report.js` (ya corría lunes 8am vía Task Scheduler, no detectado hasta ahora) |
 | 3.0 | 2026-07-12 | **Una sola versión, no dos.** Decidido que `server-api/lib/schemaHealth.js` es el único dueño de la lógica de análisis (usuario eligió esta opción sobre mantener `mysql-weekly-report` independiente). `mysql-weekly-report` se retira — Task Scheduler pasa a ser un trigger HTTP delgado sin lógica propia. Trade-off aceptado: la corrida semanal ahora depende de que `server-api` esté arriba |
+| 3.1 | 2026-07-12 | **Backend probado end-to-end contra `bdinv` real**: `POST /internal/reports/schema_health/run` persistió 40 hallazgos (10 full_scan / 24 indice_sin_uso / 5 tabla_grande / 1 buffer_pool), incluyendo `market_sentiment` (1.46B filas examinadas, 54,649 veces). `GET /reports/schema_health` los leyó correctamente. Detectado al revisar: el umbral de severidad (10M filas) documentado arriba **no está implementado** todavía. Pendiente real: repuntar Task Scheduler y construir la página `/reports/:tipo` |

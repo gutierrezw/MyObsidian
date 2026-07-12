@@ -3,7 +3,7 @@ tipo: design
 modulo: report-center
 version: 2.0
 fecha: 2026-07-12
-status: borrador
+status: implementado (Fase 1)
 ---
 
 # Design — Motor genérico de reportes (Report Center)
@@ -97,3 +97,4 @@ La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_repor
 | 1.1 | 2026-07-12 | Agregada sección Estilo visual — se tunea en Fase 1 (schema_health) y se congela como estándar para reportes futuros |
 | 1.2 | 2026-07-12 | Aclarado que el disparador puede ser un proceso externo ya agendado (vía `POST /internal/report`), no solo un cron interno de `server-api` — motivado por descubrir que `mysql-weekly-report` ya cubría el primer consumidor |
 | 2.0 | 2026-07-12 | **Principio explícito: un solo dueño de la lógica, siempre dentro de `server-api`** — solo el disparador puede ser externo, nunca el cómputo. Usuario eligió esta opción sobre mantener `mysql-weekly-report` independiente. Endpoint de trigger nombrado: `POST /internal/reports/:tipo/run`. `mysql-weekly-report` se retira (ver [[design-schema-monitor]] para el plan de migración) |
+| 2.1 | 2026-07-12 | **Backend implementado y probado end-to-end**: tabla `reportes_historial` creada en `bdinv` real, `lib/ReportManager.js` (registrar/ultimo/historico/marcarResuelto), `routes/reports.js` (`POST /:tipo/run`, `GET /:tipo`, `GET /:tipo/historico`, `POST /:tipo/:id/resolver`), montado en `server.js` bajo `requireApiKey`. Verificado vía curl contra `server-api` en PM2: trigger de `schema_health` persistió 40 hallazgos reales, lectura los devolvió correctamente. Falta: repuntar Task Scheduler, página HTML de `/reports/:tipo` (hoy JSON crudo), Cloudflare Access |
