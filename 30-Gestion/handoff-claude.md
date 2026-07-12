@@ -14,6 +14,37 @@ Registro de ideas que nacen en una interfaz de Claude y se ejecutan en otra.
 
 ---
 
+## Arquitectura del sistema — lo que cada interfaz ve
+
+> Esta sección existe para que Desktop no tenga que redescubrir cómo funciona el sistema cada vez.
+
+### Memoria y contexto
+
+| Archivo | Quién lo lee | Propósito |
+|---------|-------------|-----------|
+| `~/.claude/CLAUDE.md` | Solo Code | Convenciones de código Python, reglas de estilo, arquitectura de agentes. **No poner referencias a docs de Obsidian aquí.** |
+| `memory/MEMORY.md` | Solo Code | Índice de memoria del proyecto. Se carga automáticamente en cada sesión Code. Es el lugar correcto para referenciar docs de Obsidian. |
+| `10-Memoria/00-Home.md` | Solo Desktop | Índice central del vault Obsidian. Desktop arranca siempre leyendo este archivo. |
+| `10-Memoria/MEMORY.md` | Solo Desktop | Copia/junction de memory/MEMORY.md — mismo contenido que lee Code. |
+| `30-Gestion/handoff-claude.md` | **Ambos** | Este archivo. Canal de comunicación entre interfaces. |
+| `30-Gestion/debates/` | **Ambos** | Debates activos. Cada interfaz completa su sección. |
+
+### Regla clave para Desktop
+**No agregar referencias a docs en `~/.claude/CLAUDE.md` global** — ese archivo es solo para convenciones de código. Si encontrás un doc relevante que Code debería conocer, agregalo en `memory/MEMORY.md` (o pedile a Code que lo haga). Code lo levantará en la próxima sesión automáticamente.
+
+### Lo que Desktop no ve sin que se lo pasen
+- Estado del repo git (commits recientes, ramas, archivos modificados)
+- Contenido de archivos fuera de Obsidian (código Python, Node.js)
+- Scripts ad-hoc que corrió Code en sesiones anteriores
+- Qué archivos son sensibles y no deben commitearse (oauth_tokens.json, credentials, etc.)
+
+### Lo que Code no ve sin que se lo pasen
+- Conversaciones anteriores de Desktop (a menos que estén en Obsidian)
+- Qué analizó Desktop fuera del vault
+- Decisiones tomadas en sesiones Desktop que no se documentaron
+
+---
+
 ## Patrón de entrada
 
 Cada idea sigue esta estructura:
@@ -43,40 +74,14 @@ Qué se considera hecho.
 
 ---
 
-### H-001 — Monitoreo y corrección de schema MySQL
-
-**Origen:** Code → Desktop
-**Estado:** Pendiente (prerequisitos en Code)
-
-**Contexto:**
-En sesión 2026-07-12 se identificó la necesidad de pasar de reportar problemas de schema (ya cubierto por `SchemasSQL/mysql_index_analyzer.py`) a tomar acciones correctivas. La BD tiene 12+ índices críticos documentados en CLAUDE.md. Claude Desktop es el agente ideal para monitoreo recurrente + correcciones puntuales vía MCP.
-
-**Prerequisitos (a implementar en Code):**
-Agregar 3 tools en `MyNode/server-api/routes/mcp.js`:
-
-| Tool | Descripción |
-|------|-------------|
-| `get_schema_health` | Tablas sin índices, full scans, config InnoDB vs recomendado, tamaño tablas críticas |
-| `get_slow_queries` | Lee slow_query_log — filtra por tabla, tiempo, frecuencia |
-| `run_schema_fix` | Crea índice o ANALYZE/OPTIMIZE tabla. Requiere `confirm=true` para ejecutar |
-
-Todas deben loguearse en `logs/mcp_audit.jsonl`.
-
-**Tarea para Desktop:**
-Una vez implementados los tools:
-1. Llamar `get_schema_health` → identificar problemas actuales
-2. Para cada problema → `run_schema_fix(confirm=false)` primero (simular)
-3. Proponer al usuario las acciones y ejecutar con `confirm=true` las aprobadas
-4. Recurrencia sugerida: lunes 8am (ya hay slot de reporte HTML en Calendar)
-
-**Resultado esperado:**
-Schema sin full scans en tablas críticas. Correcciones auditadas en `mcp_audit.jsonl`.
 
 ---
 
 ## Ideas completadas
 
-*(vacío por ahora)*
+### H-001 — Monitoreo schema MySQL ✅
+**Origen:** Code → Desktop | **Fecha:** 2026-07-12
+Debate `debate-2026-07-12-schema-monitoring.md` cerrado con consenso. Desktop implementó `get_schema_health` + `get_slow_queries` en `routes/mcp.js` (commit dd44229). `run_schema_fix` pausado hasta caso de uso real.
 
 ---
 
