@@ -64,6 +64,7 @@
 | [[20-Proyecto/spec-convergia\|ConvergIA]] | Especificación multi-agente |
 | [[20-Proyecto/spec-multi-agent\|Multi-Agent Debate]] | Arquitectura debate IA |
 | [[20-Proyecto/ref-mcp-conectores\|Conectores MCP]] | Resumen conectores |
+| [[10-Memoria/ref-arquitectura-claude-github\|Arquitectura Claude ↔ GitHub]] | Dos caminos de acceso (Code local vs Cowork público), bug conector GitHub, config MCP |
 
 ### Finanzas y usuario
 | Doc | Descripción |
