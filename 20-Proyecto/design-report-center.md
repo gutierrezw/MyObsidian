@@ -19,8 +19,11 @@ status: borrador
 ## Arquitectura
 
 ```
-Cualquier dominio (schemaHealth.js, ibReconcile.js, ...)
-    │  corre su propia lógica (cron o on-demand)
+Cualquier dominio — dentro de server-api (schemaHealth.js, ibReconcile.js, ...)
+  o un script externo ya agendado (mysql-weekly-report vía Task Scheduler, ...)
+    │
+    │  interno: llama ReportManager.registrar() directo
+    │  externo: POST /internal/report  (mismo patrón que AppOO → /internal/update)
     ▼
 ReportManager.registrar(tipoReporte, categoria, referencia, reporteBuffer)
     │
@@ -35,6 +38,8 @@ Botón "🔧 Proponer corrección"  →  abre caso en chat (genérico, no ejecut
 ```
 
 Cloudflare Access protege `/reports/*` completo — un solo setup de auth sirve para todos los reportes presentes y futuros, no uno por tipo.
+
+**Importante:** el motor no asume que cada reporte necesita un cron nuevo dentro de `server-api`. Si ya existe un proceso agendado en otro lado (ej. Windows Task Scheduler) que genera el dato, el punto de integración es un simple POST al terminar su corrida — no se duplica el disparador. [[design-schema-monitor]] (primer consumidor) usa este camino: `mysql-weekly-report/report.js` ya corría solo, se le agrega el POST.
 
 ## Tabla `reportes_historial`
 
@@ -67,8 +72,8 @@ Dueña del dominio "reportes" — cada módulo que genera un reporte la llama, n
 
 ## Cómo se suma un reporte nuevo
 
-1. El módulo dueño del dominio corre su chequeo (igual que `schemaHealth.js`)
-2. Llama `ReportManager.registrar('nuevo_tipo', categoria, referencia, buffer)`
+1. El módulo dueño del dominio corre su chequeo — dentro de `server-api` (igual que `schemaHealth.js`) o como script externo ya agendado en Task Scheduler
+2. Llama `ReportManager.registrar('nuevo_tipo', categoria, referencia, buffer)` directo, o hace `POST /internal/report` si corre fuera de `server-api`
 3. Ya aparece en `/reports/nuevo_tipo` — sin tocar auth, tabla ni página
 
 ## Estilo visual
@@ -87,3 +92,4 @@ La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_repor
 |---------|-------|--------|
 | 1.0 | 2026-07-12 | Extraído de design-schema-monitor al generalizar el patrón |
 | 1.1 | 2026-07-12 | Agregada sección Estilo visual — se tunea en Fase 1 (schema_health) y se congela como estándar para reportes futuros |
+| 1.2 | 2026-07-12 | Aclarado que el disparador puede ser un proceso externo ya agendado (vía `POST /internal/report`), no solo un cron interno de `server-api` — motivado por descubrir que `mysql-weekly-report` ya cubría el primer consumidor |

@@ -25,15 +25,22 @@ La idea descartada era un scheduler general dependiente de `mcp__scheduled-tasks
 
 ## Arquitectura (específica de schema health)
 
+> Corrección 2026-07-12: no hace falta un cron nuevo. `MyNode/mysql-weekly-report/report.js` ya corre lunes 8am vía Windows Task Scheduler ("Reporte Semanal MySQL") — es el mismo reporte que ya menciona el debate de origen (ver nota abajo). Se extiende ese script en vez de construir un cron dentro de `server-api`.
+
 ```
-node-cron (dentro de server-api, PM2)  — 1x/semana
+mysql-weekly-report/report.js (Task Scheduler, YA corre lunes 8am)
+    │  arma su HTML local como siempre
     ▼
-schemaHealth.js → getSchemaHealth() + getSlowQueries()
+POST /internal/report  (mismo patrón que AppOO → /internal/update)
     ▼
 ReportManager.registrar('schema_health', categoria, referencia, reporteBuffer)   ← ver [[design-report-center]]
     ▼
 GET /reports/schema_health  →  página genérica de Report Center
 ```
+
+**Dos caminos distintos a la misma info — no son redundantes:**
+- **Vivo/on-demand:** MCP `get_schema_health` / `get_slow_queries` (Fase 1, ya implementado en `routes/mcp.js`) — corre la query en el momento, sin histórico.
+- **Histórico/snapshot:** este doc (Fase 2) — persiste la corrida semanal de `mysql-weekly-report` en `reportes_historial`, permite ver evolución y marcar resuelto.
 
 ## Mapeo a los campos genéricos de `reportes_historial`
 
@@ -46,7 +53,7 @@ GET /reports/schema_health  →  página genérica de Report Center
 
 ## Parámetros de esta instancia
 
-- **Frecuencia del cron:** 1x/semana, de madrugada (ej. lunes 3am) — no compite con el pipeline 13F ni el uso normal de la app
+- **Frecuencia:** 1x/semana, lunes 8am — la que ya tiene "Reporte Semanal MySQL" en Task Scheduler, sin cambios
 - **Umbral de severidad:** un hallazgo aparece como "activo" si `rows_examined` total de esa corrida supera 10M filas (el caso de `market_sentiment` está en ~1.38B — bien por encima; se ajusta con datos reales más adelante)
 - **Quién marca `estado = resuelto`:** manual (vos o Code en sesión), sin automatización
 - **Botón "🔧 Proponer corrección":** abre el caso en chat — propuesta manual, no ejecuta nada solo (`run_schema_fix` sigue pausado)
@@ -56,11 +63,11 @@ GET /reports/schema_health  →  página genérica de Report Center
 ## Pendientes de decisión
 
 - [x] Auth — resuelto a nivel Report Center (Cloudflare Access, ver [[design-report-center]])
-- [x] Frecuencia del cron — 1x/semana, madrugada
+- [x] Frecuencia — 1x/semana, lunes 8am (la ya existente, sin cron nuevo)
 - [x] Umbral de severidad — `rows_examined` > 10M por corrida
 - [x] Quién marca `resuelto` — manual (vos/Code)
 
-Sin pendientes abiertos — diseño listo para pasar a implementación.
+Sin pendientes abiertos. Implementación = extender `mysql-weekly-report/report.js` con el POST a `/internal/report` — no requiere levantar infraestructura de scheduling nueva.
 
 ## Historial
 
@@ -72,3 +79,4 @@ Sin pendientes abiertos — diseño listo para pasar a implementación.
 | 1.3 | 2026-07-12 | Auth revertido a **Cloudflare Access** — pegar API key no era viable desde celular |
 | 2.0 | 2026-07-12 | Generalizado: tabla/página/auth extraídos a [[design-report-center]] (motor reutilizable). Este doc queda como su primer consumidor. Cerrados los 3 pendientes restantes (frecuencia, umbral, resolución manual) |
 | 2.1 | 2026-07-12 | Frecuencia del cron: 1x/día → 1x/semana |
+| 2.2 | 2026-07-12 | Unificado con `MyNode/mysql-weekly-report/report.js` (ya corría lunes 8am vía Task Scheduler, no detectado hasta ahora). Se descarta el node-cron propio: el script existente hace POST a `/internal/report` en vez de duplicar el disparador. Aclarada la relación con los MCP tools (vivo/on-demand) vs este doc (histórico/snapshot) |
