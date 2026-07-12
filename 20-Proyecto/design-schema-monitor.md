@@ -3,7 +3,7 @@ tipo: design
 modulo: schema-monitor
 version: 3.0
 fecha: 2026-07-12
-status: implementado (backend, falta Task Scheduler + UI)
+status: implementado (backend + Task Scheduler, falta UI)
 ---
 
 # Design — Monitoreo y corrección de schema MySQL
@@ -91,3 +91,4 @@ Sin pendientes abiertos. Implementación = (a) repuntar Task Scheduler a un trig
 | 2.2 | 2026-07-12 | Unificado con `MyNode/mysql-weekly-report/report.js` (ya corría lunes 8am vía Task Scheduler, no detectado hasta ahora) |
 | 3.0 | 2026-07-12 | **Una sola versión, no dos.** Decidido que `server-api/lib/schemaHealth.js` es el único dueño de la lógica de análisis (usuario eligió esta opción sobre mantener `mysql-weekly-report` independiente). `mysql-weekly-report` se retira — Task Scheduler pasa a ser un trigger HTTP delgado sin lógica propia. Trade-off aceptado: la corrida semanal ahora depende de que `server-api` esté arriba |
 | 3.1 | 2026-07-12 | **Backend probado end-to-end contra `bdinv` real**: `POST /internal/reports/schema_health/run` persistió 40 hallazgos (10 full_scan / 24 indice_sin_uso / 5 tabla_grande / 1 buffer_pool), incluyendo `market_sentiment` (1.46B filas examinadas, 54,649 veces). `GET /reports/schema_health` los leyó correctamente. Detectado al revisar: el umbral de severidad (10M filas) documentado arriba **no está implementado** todavía. Pendiente real: repuntar Task Scheduler y construir la página `/reports/:tipo` |
+| 3.2 | 2026-07-12 | **Task Scheduler migrada.** "Reporte Semanal MySQL" repuntada de `node report.js` a `scripts/trigger-schema-health.ps1` (curl delgado, sin lógica propia). Verificado con ejecución manual: `LastTaskResult=0`, 120 filas acumuladas en `reportes_historial`. `mysql-weekly-report` queda desconectado del scheduler (carpeta aún no archivada). Nota operativa: `schtasks /change /tr` con comillas anidadas corrompe el argumento sin avisar — usar `Set-ScheduledTask`/`New-ScheduledTaskAction` |
