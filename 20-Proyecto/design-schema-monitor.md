@@ -25,22 +25,31 @@ La idea descartada era un scheduler general dependiente de `mcp__scheduled-tasks
 
 ## Arquitectura (específica de schema health)
 
-> Corrección 2026-07-12: no hace falta un cron nuevo. `MyNode/mysql-weekly-report/report.js` ya corre lunes 8am vía Windows Task Scheduler ("Reporte Semanal MySQL") — es el mismo reporte que ya menciona el debate de origen (ver nota abajo). Se extiende ese script en vez de construir un cron dentro de `server-api`.
+> Decisión final 2026-07-12: **una sola versión, un solo dueño de la lógica.** `server-api/lib/schemaHealth.js` es la única implementación de análisis (full scans, índices sin uso, buffer pool, tamaño de tablas) — la usan tanto los MCP tools (vivo) como la corrida semanal persistida (histórico). `MyNode/mysql-weekly-report/` (script Node standalone con sus propias queries + HTML local) **se retira** — quedaría duplicando exactamente esta lógica en otro lugar.
 
 ```
-mysql-weekly-report/report.js (Task Scheduler, YA corre lunes 8am)
-    │  arma su HTML local como siempre
+Windows Task Scheduler "Reporte Semanal MySQL" (lunes 8am, YA existe)
+    │  se repuntan sus Arguments: de `node report.js` a un trigger delgado (curl/HTTP), sin lógica propia
     ▼
-POST /internal/report  (mismo patrón que AppOO → /internal/update)
+POST /internal/reports/schema_health/run   (server-api, requiere X-API-Key)
+    ▼
+schemaHealth.js → getSchemaHealth() + getSlowQueries()   ← ÚNICA implementación, misma que usan los MCP tools
     ▼
 ReportManager.registrar('schema_health', categoria, referencia, reporteBuffer)   ← ver [[design-report-center]]
     ▼
-GET /reports/schema_health  →  página genérica de Report Center
+GET /reports/schema_health  →  página genérica de Report Center (Cloudflare Access, celular)
 ```
 
-**Dos caminos distintos a la misma info — no son redundantes:**
-- **Vivo/on-demand:** MCP `get_schema_health` / `get_slow_queries` (Fase 1, ya implementado en `routes/mcp.js`) — corre la query en el momento, sin histórico.
-- **Histórico/snapshot:** este doc (Fase 2) — persiste la corrida semanal de `mysql-weekly-report` en `reportes_historial`, permite ver evolución y marcar resuelto.
+**Dos consumidores, un solo cómputo — no hay duplicación:**
+- **Vivo/on-demand:** MCP `get_schema_health` / `get_slow_queries` (Fase 1, ya implementado en `routes/mcp.js`) — llama `schemaHealth.js` directo, sin pasar por la tabla.
+- **Histórico/snapshot:** este doc (Fase 2) — el trigger semanal llama el mismo `schemaHealth.js` y persiste el resultado en `reportes_historial`, permite ver evolución y marcar resuelto.
+
+**Migración de `mysql-weekly-report`:**
+1. Repuntar la acción de la tarea "Reporte Semanal MySQL" (`schtasks /change`) de `node .../report.js` a un trigger HTTP contra `/internal/reports/schema_health/run`
+2. Portar a `schemaHealth.js` cualquier chequeo que `report.js`/`analyze-fullscan.js` tuviera y `schemaHealth.js` todavía no cubra (ej. sugerencias de índice de `analyze-fullscan.js` → alimentan `propuesta_correccion`)
+3. Una vez validada 2-3 semanas la corrida vía server-api, archivar `MyNode/mysql-weekly-report/` (no borrar de una — mantiene su HTML histórico ya generado como referencia)
+
+**Trade-off aceptado:** la corrida semanal ahora depende de que `server-api`/PM2 esté arriba (antes `mysql-weekly-report` conectaba directo a MySQL, independiente de server-api). Se acepta porque server-api ya es la base 24/7 del resto del co-work (MCP, `/db/*`) — si eso cae, ya hay impacto mayor de todos modos.
 
 ## Mapeo a los campos genéricos de `reportes_historial`
 
@@ -67,7 +76,7 @@ GET /reports/schema_health  →  página genérica de Report Center
 - [x] Umbral de severidad — `rows_examined` > 10M por corrida
 - [x] Quién marca `resuelto` — manual (vos/Code)
 
-Sin pendientes abiertos. Implementación = extender `mysql-weekly-report/report.js` con el POST a `/internal/report` — no requiere levantar infraestructura de scheduling nueva.
+Sin pendientes abiertos. Implementación = (a) repuntar Task Scheduler a un trigger HTTP delgado, (b) portar lo que falte de `mysql-weekly-report` a `schemaHealth.js`, (c) `/reports/schema_health` vía Report Center. Sin infraestructura de scheduling nueva — se reutiliza tanto el Task Scheduler existente como el proceso 24/7 de `server-api`.
 
 ## Historial
 
@@ -79,4 +88,5 @@ Sin pendientes abiertos. Implementación = extender `mysql-weekly-report/report.
 | 1.3 | 2026-07-12 | Auth revertido a **Cloudflare Access** — pegar API key no era viable desde celular |
 | 2.0 | 2026-07-12 | Generalizado: tabla/página/auth extraídos a [[design-report-center]] (motor reutilizable). Este doc queda como su primer consumidor. Cerrados los 3 pendientes restantes (frecuencia, umbral, resolución manual) |
 | 2.1 | 2026-07-12 | Frecuencia del cron: 1x/día → 1x/semana |
-| 2.2 | 2026-07-12 | Unificado con `MyNode/mysql-weekly-report/report.js` (ya corría lunes 8am vía Task Scheduler, no detectado hasta ahora). Se descarta el node-cron propio: el script existente hace POST a `/internal/report` en vez de duplicar el disparador. Aclarada la relación con los MCP tools (vivo/on-demand) vs este doc (histórico/snapshot) |
+| 2.2 | 2026-07-12 | Unificado con `MyNode/mysql-weekly-report/report.js` (ya corría lunes 8am vía Task Scheduler, no detectado hasta ahora) |
+| 3.0 | 2026-07-12 | **Una sola versión, no dos.** Decidido que `server-api/lib/schemaHealth.js` es el único dueño de la lógica de análisis (usuario eligió esta opción sobre mantener `mysql-weekly-report` independiente). `mysql-weekly-report` se retira — Task Scheduler pasa a ser un trigger HTTP delgado sin lógica propia. Trade-off aceptado: la corrida semanal ahora depende de que `server-api` esté arriba |

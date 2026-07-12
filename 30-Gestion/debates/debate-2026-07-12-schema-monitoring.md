@@ -14,7 +14,7 @@ estado: Cerrado — consenso alcanzado
 ## Tema / Pregunta
 
 > Tenemos un MCP server propio (`MyNode/server-api/routes/mcp.js`) expuesto vía Cloudflare Tunnel con OAuth.
-> La BD MySQL tiene índices críticos documentados y un script de análisis existente (`SchemasSQL/mysql_index_analyzer.py`).
+> La BD MySQL tiene índices críticos documentados y un script de análisis existente (`MyNode/mysql-weekly-report/report.js` — nombrado en el debate original como `SchemasSQL/mysql_index_analyzer.py`, un Python que nunca se llegó a construir; el reporte real siempre fue este Node, corriendo lunes 8am vía Task Scheduler).
 >
 > **¿Vale la pena agregar 3 tools MCP (`get_schema_health`, `get_slow_queries`, `run_schema_fix`) para que Claude Desktop pueda monitorear y corregir el schema sin salir del chat?**
 >
@@ -100,9 +100,18 @@ Code propuso los 3 tools juntos. Desktop separó en fases por criterio de eviden
 
 ---
 
+## 📌 Actualización — mismo esquema, un solo objetivo
+
+El "reporte HTML existente" de la línea de arriba (línea 99) y el Fase 2 diseñado después en [[design-schema-monitor]] son el mismo caso, no dos: `MyNode/mysql-weekly-report/report.js`, ya corriendo lunes 8am vía Task Scheduler. El debate original citaba mal el nombre del script (`mysql_index_analyzer.py`, un Python que nunca se construyó) — corregido arriba.
+
+Consecuencia: [[design-schema-monitor]] no levanta un cron nuevo — extiende este mismo script existente con un POST a `/internal/report` para persistir en la tabla genérica de [[design-report-center]]. Los MCP tools de este debate (`get_schema_health`/`get_slow_queries`) siguen siendo el camino read-only/on-demand; el Report Center es el camino histórico/snapshot sobre la misma corrida semanal.
+
+---
+
 ## Historial
 | Fecha | Quién | Acción |
 |-------|-------|--------|
 | 2026-07-12 | Code | Escribió perspectiva inicial |
 | 2026-07-12 | Desktop | Escribió perspectiva estratégica — a favor de Fase 1 (solo lectura), pausar `run_schema_fix` |
 | 2026-07-12 | Code | Síntesis — consenso alcanzado. Fase 1 aprobada, run_schema_fix pausado |
+| 2026-07-12 | Code | Corregida referencia al script (era Python inexistente, es `mysql-weekly-report` Node) y unificado con [[design-schema-monitor]]/[[design-report-center]] — mismo esquema, un solo objetivo |
