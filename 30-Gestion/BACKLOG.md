@@ -15,17 +15,13 @@ Historial de versiones al final del archivo.
 | # | Módulo | Tarea | Prioridad |
 |---|--------|-------|-----------|
 | 67 | **Stock/UI** | Panel trades IB en la app — visualizar los trades ejecutados en IB (últimos 7 días al arranque, solo día actual en adelante). Útil para auditar operaciones que no se registraron en booktrading sin tener que salir de la app. Vista de solo lectura, sin inserción directa para no descontrolar inventario. | Media |
-| 65 | **Infraestructura** | Cloudflare Tunnel — ✅ DONE. Túnel activo como servicio Windows. Dominio `wildaga.com`. Rutas `api-main.wildaga.com` y `api-son.wildaga.com` → `localhost:8050`. OAuth implementado (ítem 66). | Alta |
-| 66 | **Infraestructura/MCP** | OAuth en server-api — ✅ DONE. `routes/oauth.js`: Authorization Code + PKCE. `auth.js` acepta Bearer token. Discovery: `/.well-known/oauth-authorization-server`. Registrar en claude.ai Settings → Connectors → `https://api-main.wildaga.com/mcp`. | Alta |
+| 68 | **Infraestructura/MCP** | Tools MCP bajo demanda + detección de recurrencia — agregar tools específicos en `routes/mcp.js` cuando una consulta se repite. Evitar SQL libre (riesgo Tunnel). **Criterio manual:** si Claude hizo el mismo script externo más de una vez → candidato a tool. **Criterio automático (idea):** loguear queries recurrentes en sesiones de co-work (VS Code + Desktop) → cuando un patrón se repite N veces → sugerir o auto-crear el endpoint. Objetivo: reducir fricción progresivamente sin intervención manual cada vez. | Baja |
 | 18 | **Auto-Remediación** | BD: crear tablas `fallos`, `app_metrics`, `bd_metrics` | Media |
 | 19 | **Auto-Remediación** | Agentes: `Agente_FallosLog` + `Agente_MetricasCodigo` + `Agente_MetricasBD` | Media |
 | 22 | **Auto-Remediación** | UI tab System: panel "Fallos & Métricas" — treeview fallos + resumen calidad + desempeño BD | Media |
-| 21 | **Mantenimiento** | Depuración imports — `Modulos_python.py` (vulture 63 hallazgos) | Baja |
-| 28 | **Infraestructura** | Check NTP — ✅ DONE. `Agente_NtpCheck` @5min en AgentManager. Alerta Telegram si deriva >500ms. Limpieza logs y check servicios: cubiertos por agentes existentes. | Media |
 | 38 | **Gmail/Productividad** | Depuración bandeja Gmail con Claude Desktop: clasificar, etiquetar y archivar correos masivos; definir reglas de limpieza recurrente; usar MCP Gmail tools de Claude Desktop | Media |
 | 39 | **BotCrypto/Analytics** | `run_bot_analytics.py`: parsear JSON técnico en `booktrading` (RSI/MACD/ATR/Fibonacci × 3 timeframes diaria/semanal/mensual) de trades cerrados → tabla correlación condición→WR; identificar patrones de entrada ganadores/perdedores para mejorar reglas del scoring | Media |
 | 51 | **IA/Investigación** | Revisar agentes financieros que ofrece Claude (Managed Agents API) y evaluar integración al proyecto de inversiones — análisis de portafolio, señales, alertas u otros casos de uso relevantes | Media |
-| 64 | **IA/Modelos** | **Retrain agosto** — 2do entrenamiento modelos BUY/SELL con sentimiento real. Verificar feature importance de `sentiment_*` > 0. Ejecutar desde Monitor IA → botón Entrenar SELL y BUY. Prerequisito: ≥30 filas etiquetadas post-2026-05-22. | Media |
 | 52 | **Infraestructura/Agentes** | Panel Agentes — niveles jerárquicos: N1 Datos (MarketScreener, EdgarFunds, FundFilings, 13FHoldings, Sentimiento, YouTubeScanner), N2 Señales (13FScores, InstitucionalScore, ConsensoCache, InterpreteSentimiento, ClasificadorETF, StockBeta), N3 Decisiones (ManagerPreservation, SyncOrders, LtvControl, OrderEodCleanup), N4 Soporte (PriceSync, PerformaValidator, SplitsControl, ExtractosWatcher, AuditPortfolio, ApiCostTracker). Agregar campo `nivel` en `AGENTES_SCHEDULE`, agrupar por nivel en treeview con separador visual, ajustar columnas del panel (ancho + orden). | Media |
 | 🧪 53 | **Stock/GainsCapture** | `Agente_GainsCapture` — espíritu especulativo (distinto a Preservation que es defensivo). Opera sobre `categoriaActivo='N'` (volátiles): venta parcial por niveles de ROI (50%/100%/150%), validación Claude de técnicos (RSI_d/RSI_w/EMA) antes de cada nivel. Dos modos: `automatico` (LMT directo a IB + notif Telegram) y `autorizado` (propuesta Telegram /ok /no, timeout 30min → cancela sin ejecutar). **En observación.** | Alta |
 | 55 | **IA/Consenso** | Tech Alignment — 7º voto Consenso: RSS TechCrunch+MIT Review → Claude Haiku clasifica temas activos (ai_semiconductors, clean_energy, biotech, etc.) → `voto_tech_alignment(symbol)`. Plan completo en `ConvergIA/`: `Scanner_Tecnologias.py` + `ThemeMapper.py`. Señal para **nuevas oportunidades** según tesis de inversión, no para gestión de cartera activa. | Baja |
@@ -37,6 +33,13 @@ Historial de versiones al final del archivo.
 ---
 
 ## Historial
+
+### v4.2 — 2026-07-12
+- ✅ ítem 21 — Depuración imports `Modulos_python.py`: vulture 69 → 0 hallazgos (commit 777ea82)
+- ✅ ítem 28 — `Agente_NtpCheck` @5min en AgentManager. Alerta Telegram si deriva >500ms.
+- ✅ ítem 65 — Cloudflare Tunnel activo como servicio Windows. Dominio `wildaga.com`. Rutas `api-main.wildaga.com` + `api-son.wildaga.com` → `localhost:8050`.
+- ✅ ítem 66 — OAuth en server-api: Authorization Code + PKCE. Discovery `/.well-known/oauth-authorization-server`. Registrado en claude.ai Connectors.
+- ✅ ítem 64 — Retrain modelos BUY/SELL con sentimiento: BUY reentrenado semana 2026-07-07 (33 filas, prerequisito ≥30 cumplido). SELL con 24 filas / 1 señal sell — reentrenar cuando acumule más ejemplos positivos.
 
 ### v4.1 — 2026-07-10
 **Documentación centralizada en Obsidian + modelos IA:**
