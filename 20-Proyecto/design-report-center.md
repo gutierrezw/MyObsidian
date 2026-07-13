@@ -1,8 +1,8 @@
 ---
 tipo: design
 modulo: report-center
-version: 2.0
-fecha: 2026-07-12
+version: 2.4
+fecha: 2026-07-13
 status: implementado (Fase 1)
 ---
 
@@ -67,9 +67,18 @@ Dueña del dominio "reportes" — cada módulo que genera un reporte la llama, n
 | Método | Uso |
 |--------|-----|
 | `registrar(tipoReporte, categoria, referencia, reporteBuffer, tablasAfectadas)` | Si ya existe un caso activo (mismo `tipo_reporte`+`referencia`, `estado` no resuelto/descartado), lo actualiza en el lugar (refresca `fecha_ejecucion`, `categoria`, `reporte`, `tablas_afectadas`). Si no existe, inserta fila nueva. Evita filas duplicadas para el mismo hallazgo en cada corrida — la tabla crece solo cuando aparece un caso nuevo o cuando uno ya resuelto vuelve a ocurrir |
-| `ultimo(tipoReporte)` | Hallazgos activos de la corrida más reciente |
+| `ultimo(tipoReporte)` | Hallazgos activos de la corrida más reciente. Además calcula `no_reproducido` por fila (ver sección abajo) |
 | `historico(tipoReporte, referencia)` | Serie histórica de un caso puntual |
 | `marcarResuelto(id, propuestaCorreccion)` | Cierra un hallazgo |
+| `marcarPropuesto(id)` | Pasa el hallazgo a `estado='propuesto'` — bandeja de pendientes manual, no ejecuta nada |
+
+## Bandeja de pendientes — botón "🔧 Proponer corrección"
+
+Implementado 2026-07-13, exactamente como preveía el diagrama de Arquitectura (sección arriba): el botón marca el hallazgo como `propuesto` (`POST /:tipo/:id/proponer` → `ReportManager.marcarPropuesto`) y ahí termina — **no ejecuta nada automáticamente**. Es una bandeja de pendientes manual: el usuario decide cuándo llevar ese caso a una sesión de Code para resolverlo. Se descartó explícitamente construir análisis o corrección programada/automática (ver `feedback_cowork_propio_shelved` en memoria — decisión de 2026-07-12 reafirmada el 2026-07-13 cuando se propuso extenderla a este caso y el usuario la rechazó).
+
+## Un fix resuelve varios hallazgos — "no reproducido"
+
+Un mismo fix de fondo (ej. connection pooling) puede hacer desaparecer varios hallazgos de una corrida a la siguiente (varios `full_scan` + `buffer_pool` a la vez). En vez de resolver eso automáticamente, `ReportManager.ultimo()` compara la `fecha_ejecucion` de cada fila contra la fecha de la corrida más reciente del mismo `tipo_reporte`: si quedó atrás, marca `no_reproducido=true` sin cambiar `estado` ni tocar ninguna tabla nueva (no requirió cambio de schema). La página (`reportPage.js`) atenúa esa fila (`opacity: 0.6`), le agrega el badge "no reproducido", y `marcarResuelto` pre-llena la propuesta de corrección con la fecha en que se vio por última vez — pero sigue requiriendo confirmación humana antes de cerrar el caso. Verificado end-to-end 2026-07-13 con un caso simulado (backdate de `fecha_ejecucion` + revert).
 
 `routes/reports.js` expone `GET /reports/:tipo` y `POST /internal/reports/:tipo/run` (trigger genérico, requiere `X-API-Key`) — el módulo dueño del dominio (ej. `schemaHealth.js`) hace su chequeo y llama `ReportManager.registrar(...)` al final; coordinador simple, la lógica de qué medir vive únicamente en ese módulo, nunca fuera de `server-api`.
 
@@ -84,11 +93,14 @@ Dueña del dominio "reportes" — cada módulo que genera un reporte la llama, n
 
 La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_reporte` — así que el estilo se define **una sola vez** y no por reporte.
 
-- **Fase de ajuste:** durante la implementación de `schema_health` (primer consumidor), el estilo queda abierto a tuneo — colores, layout, cómo se ven las mini-series históricas, botones.
-- **Congelamiento:** al cerrar esa Fase 1, el estilo aprobado se documenta acá (CSS/paleta/tipografía) como estándar. Los reportes que se sumen después (`ib_reconcile`, etc.) lo heredan automáticamente vía la página genérica — no se rediseña por tipo.
+- **Fase de ajuste:** durante la implementación de `schema_health` (primer consumidor), el estilo quedó abierto a tuneo — colores, layout, cómo se ven las mini-series históricas, botones.
+- **Congelamiento (2026-07-13):** estilo aprobado, vive en `lib/reportPage.js` (`<style>` inline, no hoja de estilos separada — la página es un único módulo autocontenido). Los reportes que se sumen después (`ib_reconcile`, etc.) lo heredan automáticamente vía la página genérica — no se rediseña por tipo.
+  - **Base:** dark mode fijo (`color-scheme: dark`), fondo `#0d1117`, texto `#e6edf3`, fuente sistema (`-apple-system, Segoe UI, sans-serif`).
+  - **Tabla:** filas con hover `#161b22`, separador `1px solid #21262d`, headers en mayúsculas `#8b949e` 0.72rem.
+  - **Badges de estado** (`estado` del hallazgo): `detectado` = naranja (`#4d2d00`/`#f0883e`), `propuesto` = azul (`#1c3a5e`/`#58a6ff`). `no_reproducido` = badge verde adicional (`ausente-tag`, `#1a2f1a`/`#3fb950`) + fila atenuada (`opacity: 0.6`) — señal visual de "esto puede estar resuelto, confirmar antes de cerrar".
+  - **Detalle JSON:** `<details>` colapsable con `<pre>` monoespaciado sobre fondo `#010409` — evita que el JSON crudo abrume la tabla por default.
+  - **Botones:** estilo uniforme `#21262d` con hover `#30363d`, sin distinción visual entre acciones (todas requieren confirm() antes de disparar el POST correspondiente).
 - **Cómo se prueba:** conviene iterar el look en un Artifact (prototipo rápido, sin tocar `server-api`) antes de portarlo a la página real — así se ajusta visualmente sin fricción de deploy.
-
-*(Pendiente: paleta/tipografía definitiva — se completa esta sección al cerrar Fase 1.)*
 
 ## Historial
 
@@ -101,3 +113,4 @@ La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_repor
 | 2.1 | 2026-07-12 | **Backend implementado y probado end-to-end**: tabla `reportes_historial` creada en `bdinv` real, `lib/ReportManager.js` (registrar/ultimo/historico/marcarResuelto), `routes/reports.js` (`POST /:tipo/run`, `GET /:tipo`, `GET /:tipo/historico`, `POST /:tipo/:id/resolver`), montado en `server.js` bajo `requireApiKey`. Verificado vía curl contra `server-api` en PM2: trigger de `schema_health` persistió 40 hallazgos reales, lectura los devolvió correctamente. Falta: repuntar Task Scheduler, página HTML de `/reports/:tipo` (hoy JSON crudo), Cloudflare Access |
 | 2.2 | 2026-07-12 | Task Scheduler repuntada (ver [[design-schema-monitor]]). Agregada columna `tablas_afectadas` — para `full_scan` se parsea `FROM`/`JOIN` sobre `QUERY_SAMPLE_TEXT` (muestra real de la query, no el `digest_text` normalizado/truncado) porque el catálogo de MySQL no expone tabla a nivel de digest; probado con el caso real de `market_sentiment` (3 tablas vía JOIN, correctamente separadas) |
 | 2.3 | 2026-07-12 | `registrar()` cambia de INSERT ciego a upsert por caso activo — feedback del usuario: insertar una fila nueva en cada corrida aunque el hallazgo no cambie no tenía sentido. Probado: dos corridas seguidas dejan `total_filas = referencias_unicas = 39` (antes hubiera dado 78). Solo se inserta fila nueva para un caso realmente nuevo, o para uno que ya estaba `resuelto`/`descartado` y reaparece |
+| 2.4 | 2026-07-13 | Botón "🔧 Proponer corrección" implementado (`marcarPropuesto` + `POST /:tipo/:id/proponer`) — bandeja de pendientes manual, sin auto-ejecución. Agregado `no_reproducido` en `ultimo()` — detecta hallazgos que un fix de fondo resolvió sin que el usuario tuviera que cerrarlos uno por uno; badge + fila atenuada + sugerencia pre-llenada, requiere confirmación humana. Verificado end-to-end con caso simulado. **Estilo visual congelado** (sección Estilo visual completa, ya no queda pendiente) |
