@@ -1,7 +1,7 @@
 ---
 tipo: design
 modulo: report-center
-version: 2.6
+version: 2.7
 fecha: 2026-07-13
 status: implementado (Fase 1)
 ---
@@ -39,7 +39,7 @@ GET /reports/:tipo  →  página genérica lee ReportManager.ultimo()/historico(
 Botón "🔧 Proponer corrección"  →  abre caso en chat (genérico, no ejecuta nada solo)
 ```
 
-Cloudflare Access protege `/reports/*` completo — un solo setup de auth sirve para todos los reportes presentes y futuros, no uno por tipo.
+**Acceso — Cloudflare Access + Google (activo desde 2026-07-05):** protege `/reports/*` completo en `api-main.wildaga.com` — un solo setup de auth sirve para todos los reportes presentes y futuros, no uno por tipo. Login vía Google (cuenta `gutierrez.madrid.wilmer@gmail.com`), policy creada y guardada en el dashboard de Cloudflare (Zero Trust → Access → Applications). No requiere manejo de contraseñas propio ni sesión separada del server-api — Cloudflare intercepta antes de llegar a Express. Setup fue un paso único, no necesita repetirse al sumar reportes nuevos (ver [[report-center-status]] en memoria para más contexto operativo).
 
 [[design-schema-monitor]] (primer consumidor) usa el camino externo: Windows Task Scheduler ya corre lunes 8am (antes disparaba `mysql-weekly-report/report.js` con su propia lógica) — se repunta para que solo dispare `POST /internal/reports/schema_health/run`, sin cómputo propio. `mysql-weekly-report` se retira.
 
@@ -99,6 +99,20 @@ La métrica original ordenaba `full_scans` por `sum_rows_examined` **acumulado**
 
 Visible solo en `schema_health` (`reportPage.js`, condicional por `tipo`). Llama `POST /reports/schema_health/reset-stats` → `schemaHealth.resetStats()` → `TRUNCATE performance_schema.events_statements_summary_by_digest`. Con `confirm()` explícito: afecta a **todas** las queries, no una sola — sirve para arrancar una medición limpia al validar un fix puntual, pero queries pesadas-pero-poco-frecuentes (ej. batch 13F) no reaparecen en los reportes hasta que vuelvan a ejecutarse.
 
+## Falsos positivos de `indices_sin_uso` — tres patrones distintos (2026-07-13)
+
+`performance_schema.table_io_waits_summary_by_index_usage` acumula lecturas/escrituras por índice **desde el último reinicio de MySQL** (no desde el botón "Reiniciar estadísticas" — ese trunca `events_statements_summary_by_digest`, una tabla distinta, usada solo para `full_scan`/slow queries). Un índice con `count_read=0` no necesariamente está muerto: puede ser real pero de uso esporádico. Depuración de la bandeja de 9 hallazgos pendientes de `indice_sin_uso` encontró tres causas distintas, cada una con su propio fix en `schemaHealth.js`:
+
+1. **Índices UNIQUE de constraint** (ej. `ib_flex_trades.uq_transaction_id`) — MySQL no siempre los marca como "usados" en este contador aunque sí se usan para validar duplicados en cada INSERT. Fix estructural: excluir del query cualquier índice donde `information_schema.STATISTICS.NON_UNIQUE = 0` (son constraints, no índices de performance opcionales — nunca se deben poder "dropear por desuso").
+2. **Verificados en uso por código real pero de baja frecuencia** (`market.idx_market_account_symbol`, `market.idx_market_ACCOUNT_tipo`) — confirmado con `EXPLAIN` + grep de `Modulos_Mysql.py` (líneas 1568 y 1580, queries `WHERE account+symbol` / `WHERE account+tipo`). El contador estaba en 0 solo porque el query path que los usa no corrió aún desde el último restart de MySQL. Fix: lista blanca hardcodeada `INDICES_USO_VERIFICADO` (`schemaHealth.js`), cada entrada con comentario apuntando a la línea de código que lo justifica — mecanismo pensado para casos puntuales verificados a mano, no para volumen.
+3. **Real pero esporádico, sin verificación de código caso-por-caso viable** (7 índices `fin_*`/`ia_mejoras` del módulo Finanzas — uso manual del usuario cuando revisa gastos puntuales, "muy esporádico", no built-in a ningún batch). Validado en vivo durante la sesión: varios de estos índices pasaron de `count_read=0` a cientos de lecturas en cuestión de horas, mientras se seguía trabajando. Fix de raíz (no lista blanca — no escala): `UMBRAL_UPTIME_DIAS = 30` gatea el query completo de `indices_sin_uso` — no reporta nada si `SHOW GLOBAL STATUS LIKE 'Uptime'` indica menos de 30 días corridos, dándole tiempo a procesos de baja frecuencia a dejar rastro real antes de sospechar de un índice.
+
+Como consecuencia de esta depuración también se dropearon en `bdinv` 6 índices confirmados como genuinamente sin uso en tablas pequeñas (`ia_trace.idx_estado/idx_timestamp/idx_vehiculo_decision`, `split.split_ticket`, `trazaplan.idx_idcuenta`, `youtube_candidatos.idx_ultima_vez`) — en tablas de pocas filas MySQL nunca los elige (full scan siempre gana), sin uso real ni potencial a ese volumen.
+
+## `buffer_pool` — umbral de reporte (2026-07-13)
+
+A diferencia de `full_scan`/`indice_sin_uso`/`tabla_grande` (hallazgos discretos, aparecen solo si hay un problema puntual), `buffer_pool` es una métrica continua (`en_uso_gb` / `configurado_gb`) que se registraba en **cada corrida sin condición** — ruido permanente inevitable en la bandeja aunque la DB estuviera sana. Fix: `UMBRAL_BUFFER_POOL = 0.6` en `routes/reports.js` — solo se llama a `ReportManager.registrar()` para `buffer_pool` cuando el uso real supera 60% del buffer pool configurado (señal real de presión de memoria). Estado verificado el 2026-07-13: 0.37GB en uso / 2.00GB configurado (18%) — DB bien entonada, sin ajuste de memoria pendiente.
+
 ## Cómo se suma un reporte nuevo
 
 1. El módulo dueño del dominio se implementa **dentro de `server-api`** (igual que `schemaHealth.js`) — aunque el disparo venga de afuera (Task Scheduler u otro), el cómputo no sale de acá
@@ -133,3 +147,4 @@ La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_repor
 | 2.4 | 2026-07-13 | Botón "🔧 Proponer corrección" implementado (`marcarPropuesto` + `POST /:tipo/:id/proponer`) — bandeja de pendientes manual, sin auto-ejecución. Agregado `no_reproducido` en `ultimo()` — detecta hallazgos que un fix de fondo resolvió sin que el usuario tuviera que cerrarlos uno por uno; badge + fila atenuada + sugerencia pre-llenada, requiere confirmación humana. Verificado end-to-end con caso simulado. **Estilo visual congelado** (sección Estilo visual completa, ya no queda pendiente) |
 | 2.5 | 2026-07-13 | Botón "Descartar (no reprodujo)" (`marcarDescartado` + `POST /:tipo/:id/descartar`) — cierra un caso `no_reproducido` sin afirmar un fix (`estado='descartado'`, distinto de `'resuelto'`). Solo visible cuando la fila ya está marcada `no_reproducido` |
 | 2.6 | 2026-07-13 | ID de fila visible en la tabla. Botón "🔄 Reiniciar estadísticas" (trunca `performance_schema.events_statements_summary_by_digest`, solo en `schema_health`). Columnas Ejec./Filas por ejecución (`pesoRegistro()` prioriza por peso real, no por orden de categoría). **Umbral por ejecución para `full_scan`**: `sum_rows_examined/count_star >= 10M` en vez de acumulado — resolvió el falso positivo #239 (artefacto de materialización de subquery derivada, no falta de índice) |
+| 2.7 | 2026-07-13 | Depuración completa de la bandeja `schema_health` (32 hallazgos cerrados, 6 índices dropeados en `bdinv`). Tres fixes de raíz para falsos positivos de `indice_sin_uso` (exclusión UNIQUE constraint, lista blanca `INDICES_USO_VERIFICADO`, umbral `UMBRAL_UPTIME_DIAS=30` — ver sección dedicada arriba). Umbral `UMBRAL_BUFFER_POOL=0.6` para dejar de reportar `buffer_pool` en cada corrida sin condición. Expandido detalle de Cloudflare Access + Google login en sección Arquitectura |
