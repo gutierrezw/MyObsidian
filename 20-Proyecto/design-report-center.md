@@ -1,7 +1,7 @@
 ---
 tipo: design
 modulo: report-center
-version: 2.4
+version: 2.6
 fecha: 2026-07-13
 status: implementado (Fase 1)
 ---
@@ -69,8 +69,9 @@ Dueña del dominio "reportes" — cada módulo que genera un reporte la llama, n
 | `registrar(tipoReporte, categoria, referencia, reporteBuffer, tablasAfectadas)` | Si ya existe un caso activo (mismo `tipo_reporte`+`referencia`, `estado` no resuelto/descartado), lo actualiza en el lugar (refresca `fecha_ejecucion`, `categoria`, `reporte`, `tablas_afectadas`). Si no existe, inserta fila nueva. Evita filas duplicadas para el mismo hallazgo en cada corrida — la tabla crece solo cuando aparece un caso nuevo o cuando uno ya resuelto vuelve a ocurrir |
 | `ultimo(tipoReporte)` | Hallazgos activos de la corrida más reciente. Además calcula `no_reproducido` por fila (ver sección abajo) |
 | `historico(tipoReporte, referencia)` | Serie histórica de un caso puntual |
-| `marcarResuelto(id, propuestaCorreccion)` | Cierra un hallazgo |
+| `marcarResuelto(id, propuestaCorreccion)` | Cierra un hallazgo — **afirma** que se confirmó/aplicó un fix |
 | `marcarPropuesto(id)` | Pasa el hallazgo a `estado='propuesto'` — bandeja de pendientes manual, no ejecuta nada |
+| `marcarDescartado(id, nota)` | Cierra un hallazgo `no_reproducido` sin afirmar un fix — para falsos positivos o casos no reproducidos. Distinto de `marcarResuelto`: `estado='descartado'`, no `'resuelto'` |
 
 ## Bandeja de pendientes — botón "🔧 Proponer corrección"
 
@@ -81,6 +82,22 @@ Implementado 2026-07-13, exactamente como preveía el diagrama de Arquitectura (
 Un mismo fix de fondo (ej. connection pooling) puede hacer desaparecer varios hallazgos de una corrida a la siguiente (varios `full_scan` + `buffer_pool` a la vez). En vez de resolver eso automáticamente, `ReportManager.ultimo()` compara la `fecha_ejecucion` de cada fila contra la fecha de la corrida más reciente del mismo `tipo_reporte`: si quedó atrás, marca `no_reproducido=true` sin cambiar `estado` ni tocar ninguna tabla nueva (no requirió cambio de schema). La página (`reportPage.js`) atenúa esa fila (`opacity: 0.6`), le agrega el badge "no reproducido", y `marcarResuelto` pre-llena la propuesta de corrección con la fecha en que se vio por última vez — pero sigue requiriendo confirmación humana antes de cerrar el caso. Verificado end-to-end 2026-07-13 con un caso simulado (backdate de `fecha_ejecucion` + revert).
 
 `routes/reports.js` expone `GET /reports/:tipo` y `POST /internal/reports/:tipo/run` (trigger genérico, requiere `X-API-Key`) — el módulo dueño del dominio (ej. `schemaHealth.js`) hace su chequeo y llama `ReportManager.registrar(...)` al final; coordinador simple, la lógica de qué medir vive únicamente en ese módulo, nunca fuera de `server-api`.
+
+Cuando una fila queda `no_reproducido`, la página ofrece el botón **"Descartar (no reprodujo)"** (`POST /:tipo/:id/descartar` → `marcarDescartado`) además de "Marcar resuelto" — cierra el caso sin afirmar que se aplicó un fix (útil para falsos positivos, ver caso #239 más abajo). Si el pipeline lo vuelve a detectar, reaparece como fila nueva.
+
+## Priorización por peso real — columnas Ejec. / Filas por ejecución
+
+Cada fila expone, cuando la categoría lo provee (`full_scan` hoy; `tabla_grande` usa `filas` como aproximación), la cantidad de ejecuciones (`veces`) y las filas examinadas **por ejecución** (`filas_examinadas_prom = sum_rows_examined / count_star`, calculado en `schemaHealth.js`). `ReportManager.pesoRegistro()` ordena `ultimo()` por ese valor — evita que una query barata-pero-frecuente desplace visualmente a una realmente pesada. Categorías sin este detalle muestran "—". El ID de cada fila (`row.id`) también es visible en la tabla para poder referenciar un caso puntual sin abrir el JSON.
+
+## Umbral por ejecución para `full_scan` — caso #239
+
+La métrica original ordenaba `full_scans` por `sum_rows_examined` **acumulado**, que mezcla "corre muchas veces" con "es realmente cara por ejecución". El hallazgo #239 (una query sobre `market_sentiment` con subquery agregada) acumulaba millones de filas examinadas solo porque corría muy seguido — diagnosticado con `EXPLAIN` + `SHOW INDEX`: el `type: ALL` marcado por `performance_schema` era un artefacto de la materialización de la subquery derivada (11-40 filas reales), no una falta de índice. Restructurar la query (ej. window functions) no lo hubiera eliminado — cualquier subquery agregada produce el mismo artefacto vía otra tabla intermedia.
+
+**Fix (2026-07-13):** `schemaHealth.js` ahora exige `sum_rows_examined / count_star >= 10.000.000` (filas por ejecución, no acumulado) y ordena por ese promedio. Verificado con corrida forzada: `full_scan` pasó de reportar falsos positivos como #239 a **0** hallazgos activos. #239 se descartó manualmente vía "Descartar (no reprodujo)".
+
+## Reiniciar estadísticas — botón "🔄 Reiniciar estadísticas"
+
+Visible solo en `schema_health` (`reportPage.js`, condicional por `tipo`). Llama `POST /reports/schema_health/reset-stats` → `schemaHealth.resetStats()` → `TRUNCATE performance_schema.events_statements_summary_by_digest`. Con `confirm()` explícito: afecta a **todas** las queries, no una sola — sirve para arrancar una medición limpia al validar un fix puntual, pero queries pesadas-pero-poco-frecuentes (ej. batch 13F) no reaparecen en los reportes hasta que vuelvan a ejecutarse.
 
 ## Cómo se suma un reporte nuevo
 
@@ -114,3 +131,5 @@ La página `/reports/:tipo` es genérica — misma UI para cualquier `tipo_repor
 | 2.2 | 2026-07-12 | Task Scheduler repuntada (ver [[design-schema-monitor]]). Agregada columna `tablas_afectadas` — para `full_scan` se parsea `FROM`/`JOIN` sobre `QUERY_SAMPLE_TEXT` (muestra real de la query, no el `digest_text` normalizado/truncado) porque el catálogo de MySQL no expone tabla a nivel de digest; probado con el caso real de `market_sentiment` (3 tablas vía JOIN, correctamente separadas) |
 | 2.3 | 2026-07-12 | `registrar()` cambia de INSERT ciego a upsert por caso activo — feedback del usuario: insertar una fila nueva en cada corrida aunque el hallazgo no cambie no tenía sentido. Probado: dos corridas seguidas dejan `total_filas = referencias_unicas = 39` (antes hubiera dado 78). Solo se inserta fila nueva para un caso realmente nuevo, o para uno que ya estaba `resuelto`/`descartado` y reaparece |
 | 2.4 | 2026-07-13 | Botón "🔧 Proponer corrección" implementado (`marcarPropuesto` + `POST /:tipo/:id/proponer`) — bandeja de pendientes manual, sin auto-ejecución. Agregado `no_reproducido` en `ultimo()` — detecta hallazgos que un fix de fondo resolvió sin que el usuario tuviera que cerrarlos uno por uno; badge + fila atenuada + sugerencia pre-llenada, requiere confirmación humana. Verificado end-to-end con caso simulado. **Estilo visual congelado** (sección Estilo visual completa, ya no queda pendiente) |
+| 2.5 | 2026-07-13 | Botón "Descartar (no reprodujo)" (`marcarDescartado` + `POST /:tipo/:id/descartar`) — cierra un caso `no_reproducido` sin afirmar un fix (`estado='descartado'`, distinto de `'resuelto'`). Solo visible cuando la fila ya está marcada `no_reproducido` |
+| 2.6 | 2026-07-13 | ID de fila visible en la tabla. Botón "🔄 Reiniciar estadísticas" (trunca `performance_schema.events_statements_summary_by_digest`, solo en `schema_health`). Columnas Ejec./Filas por ejecución (`pesoRegistro()` prioriza por peso real, no por orden de categoría). **Umbral por ejecución para `full_scan`**: `sum_rows_examined/count_star >= 10M` en vez de acumulado — resolvió el falso positivo #239 (artefacto de materialización de subquery derivada, no falta de índice) |
