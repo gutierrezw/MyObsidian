@@ -227,7 +227,46 @@ VALUES ('ClaudeAPIP', 'sk-ant-...', '');
 
 ---
 
-## PASO 9 — Verificar que la app arranca
+## PASO 9 — TradingView + Panel AppOO
+
+### 9.1 Crear cuenta TradingView
+
+Registrarse en `https://www.tradingview.com` — el plan gratuito es suficiente.
+
+### 9.2 Agregar indicadores del autor
+
+En TradingView → abrir un gráfico → **Indicators** → buscar autor: **GutierrezW**
+
+Agregar y marcar como favoritos:
+| Indicador | Descripción |
+|-----------|-------------|
+| `EMA/MACD cross {dual 4 EMA (V2.0)}` | Medias móviles en el gráfico |
+| `RSI Cross + VIX + Volume (v5.1)` | Panel RSI + VIX + volumen debajo del gráfico |
+
+### 9.3 Instalar el panel Tampermonkey (tv_panel.js)
+
+El panel conecta TradingView con AppOO para ver la cartera directamente en el gráfico.
+
+**Paso 1 — Instalar Tampermonkey** (extensión del browser):
+- Chrome: `https://chrome.google.com/webstore/detail/tampermonkey`
+- Firefox: `https://addons.mozilla.org/firefox/addon/tampermonkey`
+
+**Paso 2 — Instalar el script:**
+1. Abrir Tampermonkey → Dashboard → icono `+` (nuevo script)
+2. Borrar todo el contenido por defecto
+3. Pegar el contenido de `setup_hijo\tv_panel.js`
+4. Guardar con Ctrl+S
+
+**Paso 3 — Verificar:**
+- Abrir TradingView en el browser
+- Debe aparecer un panel flotante con datos de la cartera
+- Si no aparece → verificar que Tampermonkey esté activado
+
+> **Requisito:** AppOO debe estar corriendo en la misma máquina. El panel se comunica con la app a través de `localhost:5050`.
+
+---
+
+## PASO 10 — Verificar que la app arranca
 
 1. Ejecutar `AppOO.exe`
 2. Verificar en la pantalla de Sistema → APIs que aparezcan al menos: **MySQL ✅**, **Telegram ✅**, **Binance ✅**
