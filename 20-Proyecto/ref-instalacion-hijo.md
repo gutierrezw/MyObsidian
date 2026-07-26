@@ -342,6 +342,100 @@ El panel conecta TradingView con AppOO para ver la cartera directamente en el gr
 
 ---
 
+## PASO 11 — Instalar Python (solo para scripts de mantenimiento)
+
+`AppOO.exe` **no necesita Python** — corre solo. Python es necesario únicamente para ejecutar los scripts de AppTest (importación histórica, reconcile, etc.).
+
+### 11.1 Instalar Python 3.12
+
+1. Descargar Python 3.12.x desde `https://www.python.org/downloads/`
+2. Instalar con opción **"Add Python to PATH"** marcada
+3. Verificar: `python --version` → debe mostrar `Python 3.12.x`
+
+### 11.2 Crear entorno virtual
+
+Abrir una terminal en la carpeta raíz de los scripts (ej: `C:\AppOO_scripts\`):
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate
+pip install binance-connector pymysql mysql-connector-python
+```
+
+Esos tres paquetes cubren los scripts de importación de Binance. Si además se usan scripts de FCI bancario (BrowserFCI):
+
+```bat
+pip install playwright
+playwright install chromium
+```
+
+> **Carpeta de scripts:** los archivos `run_binance_import.py`, `config_import.json.template` y `Modulos_Mysql.py` vienen incluidos en `setup_hijo\`. Copiarlos a una carpeta de trabajo o usarlos directo desde ahí.
+
+---
+
+## PASO 12 — Reconstruir historial de operaciones Binance
+
+Este paso se hace **una sola vez** al instalar, para cargar en booktrading todas las operaciones previas que el hijo ya tenía en Binance antes de usar AppOO.
+
+### 12.1 Preparar config_import.json
+
+En la carpeta de scripts, copiar el template y editar:
+
+```bat
+copy config_import.json.template config_import.json
+notepad config_import.json
+```
+
+Completar los valores:
+
+```json
+{
+    "api_key": "TU_API_KEY_BINANCE",
+    "api_secret": "TU_API_SECRET_BINANCE",
+    "account": "B0000001",
+    "vehiculo": "Crypto",
+    "db": {
+        "host": "localhost",
+        "user": "root",
+        "password": "TU_CLAVE_MYSQL",
+        "database": "bdinv"
+    }
+}
+```
+
+### 12.2 Verificar primero con --dry-run
+
+```bat
+python run_binance_import.py --desde 2024-01-01 --dry-run
+```
+
+Muestra las operaciones que se insertarían sin tocar la BD. Verificar que las fechas y cantidades sean correctas.
+
+### 12.3 Ejecutar la importación real
+
+```bat
+python run_binance_import.py --desde 2024-01-01
+```
+
+Si solo se quieren ciertos activos:
+
+```bat
+python run_binance_import.py --desde 2024-01-01 --simbolos BTC ETH BNB
+```
+
+El script:
+- Descarga trades de Binance día a día para no saturar la API
+- Deduplica por hash — se puede correr varias veces sin riesgo de duplicados
+- Muestra un resumen al final: procesadas / insertadas / duplicadas / errores
+
+### 12.4 Verificar en la app
+
+Abrir AppOO → pestaña Crypto → booktrading. Las operaciones importadas deben aparecer con la fecha original de Binance.
+
+> **Nota:** Las operaciones importadas no tienen indicadores técnicos (RSI, MACD, etc.) — esos campos quedan en `{}`. Solo las operaciones generadas en tiempo real por la app los tienen.
+
+---
+
 ## Actualización del ejecutable
 
 Cuando el padre libera un nuevo release:
