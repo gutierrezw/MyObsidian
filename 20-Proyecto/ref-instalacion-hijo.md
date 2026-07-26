@@ -123,7 +123,47 @@ Abrir `AppOO.exe` y desde el menú de configuración de cada vehículo:
 
 ---
 
-## PASO 7b — Crear el bot de Telegram
+## PASO 7b — Crear API Key de Binance
+
+El hijo necesita su propia API Key — cada usuario de Binance tiene las suyas.
+
+### Paso 1 — Crear la API Key en Binance
+
+1. Ir a `https://www.binance.com` → Login → menú de usuario → **API Management**
+2. Click **Create API** → elegir tipo **System generated** (HMAC)
+3. Darle un nombre descriptivo (ej: `AppOO`)
+4. Pasar el 2FA que pida
+5. Binance genera dos valores — **guardarlos inmediatamente** (la Secret Key no se vuelve a mostrar):
+   - **API Key** (empieza con letras/números, ~64 chars)
+   - **Secret Key** (similar longitud)
+
+### Paso 2 — Permisos mínimos necesarios
+
+En la configuración de la API Key activar solo lo necesario:
+
+| Permiso | Activar |
+|---------|---------|
+| Enable Reading | ✅ Sí |
+| Enable Spot & Margin Trading | ✅ Sí (si opera spot) |
+| Enable Withdrawals | ❌ No |
+| Enable Margin Loans | ❌ No |
+
+> **Restricción IP recomendada:** agregar la IP de la máquina donde corre AppOO — reduce el riesgo si la key queda expuesta.
+
+### Paso 3 — Configurar en la app
+
+En `AppOO.exe` → menú **Configuración → Sesiones** → vehículo `Crypto` → editar:
+
+| Campo | Valor |
+|-------|-------|
+| `userapi` | API Key de Binance |
+| `userpass` | Secret Key de Binance |
+
+> **Nota:** Si usa lending/colateral (Flexible Loan), la API Key también necesita permiso **Enable Flexible Loan**. Agregar si aplica.
+
+---
+
+## PASO 7c — Crear el bot de Telegram
 
 El hijo necesita su propio bot de Telegram — no puede compartir el del padre (cada bot tiene un token único).
 
