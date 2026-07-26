@@ -107,28 +107,19 @@ Ya viene preconfigurado para el hijo. Solo editar:
 
 ---
 
-## PASO 7 — Configurar credenciales en BD
+## PASO 7 — Configurar credenciales desde la app
 
-### Binance (vehículo Crypto)
-```sql
-UPDATE sesion SET login_user='API_KEY', login_pass='SECRET_KEY'
-WHERE vehiculo='Crypto';
-```
+Abrir `AppOO.exe` y desde el menú de configuración de cada vehículo:
 
-### FCI Bancos
-```sql
-UPDATE fin_banks SET login_user='USUARIO', login_pass='CLAVE'
-WHERE bank_name='BBVA';
-
-UPDATE fin_banks SET login_user='USUARIO', login_pass='CLAVE'
-WHERE bank_name='Santander';
-```
-
-### Telegram (notificaciones)
-```sql
-UPDATE sesion SET login_user='BOT_TOKEN', login_pass='CHAT_ID'
-WHERE vehiculo='Telegram';
-```
+| Vehículo | Qué configurar |
+|----------|---------------|
+| Crypto | API Key y Secret Key de Binance |
+| Telegram | Bot Token y Chat ID |
+| BBVA / Santander | Usuario y clave bancaria (desde menú FCI) |
+| ClaudeAPIC | API Key para el Chatbot |
+| ClaudeAPIP | API Key para Preservation y Agente IA |
+| ClaudeAPIS | API Key para Sentimiento (opcional) |
+| ClaudeAPIE | API Key para Clasificador ETF (opcional) |
 
 ### Servicios Claude — ver inventario completo en PASO 8
 
