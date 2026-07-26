@@ -113,13 +113,56 @@ Abrir `AppOO.exe` y desde el menú de configuración de cada vehículo:
 
 | Vehículo | Qué configurar |
 |----------|---------------|
+| Chatbot | Bot Token y Chat ID de Telegram |
 | Crypto | API Key y Secret Key de Binance |
-| Telegram | Bot Token y Chat ID |
 | BBVA / Santander | Usuario y clave bancaria (desde menú FCI) |
-| ClaudeAPIC | API Key para el Chatbot |
+| ClaudeAPIC | API Key para el Chatbot IA |
 | ClaudeAPIP | API Key para Preservation y Agente IA |
 | ClaudeAPIS | API Key para Sentimiento (opcional) |
 | ClaudeAPIE | API Key para Clasificador ETF (opcional) |
+
+---
+
+## PASO 7b — Crear el bot de Telegram
+
+El hijo necesita su propio bot de Telegram — no puede compartir el del padre (cada bot tiene un token único).
+
+### Paso 1 — Crear el bot con BotFather
+
+1. Abrir Telegram y buscar `@BotFather`
+2. Enviarle el comando `/newbot`
+3. BotFather pide un nombre para el bot (ej: `AppOO Inversiones`)
+4. Pide un username (debe terminar en `bot`, ej: `AppOO_MiNombre_bot`)
+5. BotFather devuelve el **Token** — guardarlo, se ve así:
+   ```
+   7412345678:AAFxyz_abcdefghijklmnopqrstuvwxyz123
+   ```
+
+### Paso 2 — Obtener el Chat ID
+
+El Chat ID es el identificador numérico del chat donde el bot enviará mensajes.
+
+1. Buscar el bot recién creado en Telegram (por el username que elegiste)
+2. Enviarle cualquier mensaje (ej: `/start`)
+3. En el browser ir a:
+   ```
+   https://api.telegram.org/bot<TOKEN>/getUpdates
+   ```
+   (reemplazar `<TOKEN>` por el token del paso anterior)
+4. En el JSON de respuesta buscar `"chat":{"id":XXXXXXX}` — ese número es el **Chat ID**
+
+> **Alternativa rápida:** buscar `@userinfobot` en Telegram y enviarle cualquier mensaje — te responde con tu Chat ID directamente.
+
+### Paso 3 — Configurar en la app
+
+En `AppOO.exe` → menú **Configuración → Sesiones** → buscar el vehículo `Chatbot` → doble click para editar:
+
+| Campo en la app | Valor |
+|-----------------|-------|
+| `userapi` | Token que dio BotFather |
+| `iduser` | Chat ID numérico |
+
+Guardar y reiniciar el módulo Telegram desde la app.
 
 ### Servicios Claude — ver inventario completo en PASO 8
 
@@ -127,13 +170,7 @@ Abrir `AppOO.exe` y desde el menú de configuración de cada vehículo:
 
 ## PASO 8 — Inventario de servicios Claude (API Keys)
 
-Todas las keys se configuran en la tabla `sesion` como un vehículo:
-
-```sql
-INSERT INTO sesion (vehiculo, login_user, login_pass)
-VALUES ('ClaudeAPIP', 'sk-ant-...', '');
--- repetir para cada servicio
-```
+Configurar desde el menú de la app (vehículo `ClaudeAPIC`, `ClaudeAPIP`, etc.). Cada vehículo pide la API Key al abrirse por primera vez. Obtener keys en `console.anthropic.com`.
 
 | Clave en BD | Módulo que la usa | Para qué | ¿El hijo lo necesita? |
 |-------------|-------------------|----------|-----------------------|
