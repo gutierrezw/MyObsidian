@@ -2,8 +2,12 @@
 
 **Estado:** Diseño completo — pendiente implementar  
 **Fecha diseño:** 2026-06-03  
-**Prioridad:** Alta (ítem 53 backlog)  
-**Ver también:** `Doc/preservation_claude_dynamic_design.md` — agente complementario (defensivo)
+**Prioridad:** Alta (ítem 53 backlog)
+
+**Ver también:**
+- [[design-preservation.md]] — agente complementario (defensivo, protege ganancias)
+- [[analysis-agent-history-table.md]] — tabla unificada para aprender de ambos agentes
+- [[guide-gaincapture-how-it-works.md]] — guía paso a paso de cómo funciona
 
 ---
 
