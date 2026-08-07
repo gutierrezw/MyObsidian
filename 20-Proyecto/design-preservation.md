@@ -4,6 +4,10 @@
 **Fecha:** 2026-06-02  
 **Prioridad:** Alta
 
+**Activos objetivo:** `categoriaActivo='I'` en tabla `market`  
+- `I` = **Infravalorado** — precio bajo respecto a dividendo/earnings fundamentals
+- Complemento: `Agente_GainsCapture` opera sobre `N` (sin dividendos = volátiles especulativos)
+
 ---
 
 ## Problema actual

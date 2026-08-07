@@ -27,11 +27,16 @@ su movimiento, no protegiéndose de él.
 | | `Agente_ManagerPreservation` | `Agente_GainsCapture` |
 |---|---|---|
 | Espíritu | **Defensivo** — proteger lo ganado | **Especulativo** — capturar upside |
-| Activos | `I` (dividendo, estables) | `N` (volátil, crecimiento) |
+| Activos | `I` (Infravalorado: dividendo, fundamentals sólidos) | `N` (Sin dividendos: growth/volátil) |
 | Acción | Coloca STOP trailing | Vende parcialmente en niveles ROI |
 | Trigger | ROI >= 10% | ROI >= 50% (primer nivel configurable) |
 | Claude decide | Dónde poner el stop | Si hay más recorrido o vender ahora |
 | Nivel jerárquico | N3 — Decisiones | N3 — Decisiones |
+
+**Nota sobre `categoriaActivo` en `market.table`:**
+- `I` = **Infravalorado** — precio bajo vs dividendo/earnings (candidato Preservation)
+- `S` = **Sobrevalorado** — precio alto vs fundamentals (evitar entrada)
+- `N` = **Sin dividendos** — growth/especulativo (candidato GainsCapture)
 
 ---
 
