@@ -37,9 +37,11 @@ su movimiento, no protegiéndose de él.
 | Nivel jerárquico | N3 — Decisiones | N3 — Decisiones |
 
 **Nota sobre `categoriaActivo` en `market.table`:**
-- `I` = **Infravalorado** — precio bajo vs dividendo/earnings (candidato Preservation)
-- `S` = **Sobrevalorado** — precio alto vs fundamentals (evitar entrada)
-- `N` = **Sin dividendos** — growth/especulativo (candidato GainsCapture)
+- `I` = **Infravalorado** — precio bajo vs dividendo/earnings → Preservation protege ganancias
+- `S` = **Sobrevalorado** — precio alto vs fundamentals → Preservation también protege (ya está en cartera)
+- `N` = **Sin dividendos** — growth/especulativo → GainsCapture vende parcialmente en escalones
+
+**Aclaración:** `S` es "evitar entrada" (no comprar nuevas posiciones), pero si ya está en cartera en ganancia, Preservation aplica igual. La valuación no cambia que necesites proteger lo ganado.
 
 ---
 

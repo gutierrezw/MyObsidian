@@ -8,8 +8,9 @@
 - [[design-gains-capture.md]] — agente complementario (especulativo, captura upside)
 - [[analysis-agent-history-table.md]] — tabla unificada para aprender de ambos agentes
 
-**Activos objetivo:** `categoriaActivo='I'` en tabla `market`  
-- `I` = **Infravalorado** — precio bajo respecto a dividendo/earnings fundamentals
+**Activos objetivo:** `categoriaActivo` IN ('I', 'S') en tabla `market`  
+- `I` = **Infravalorado** — precio bajo vs dividendo/earnings (defensivo, compra activa)
+- `S` = **Sobrevalorado** — precio alto vs fundamentals (ya en cartera, proteger ganancia)
 - Complemento: `Agente_GainsCapture` opera sobre `N` (sin dividendos = volátiles especulativos)
 
 ---
