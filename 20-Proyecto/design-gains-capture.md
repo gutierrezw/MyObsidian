@@ -175,8 +175,9 @@ Próximo ciclo Agente_GainsCapture
 
 ---
 
-## Persistencia — `gains_capture_state.json`
+## Persistencia
 
+### Estado temporal: `gains_capture_state.json`
 Archivo propio, independiente de `preservation_state.json`:
 
 ```json
@@ -190,6 +191,63 @@ Archivo propio, independiente de `preservation_state.json`:
   }
 }
 ```
+
+### Audit trail permanente: `order_trader.json_audit_log`
+
+**Cada orden SELL de GainsCapture registra su histórico completo:**
+
+```json
+{
+  "events": [
+    {
+      "ts": "2026-08-03T10:30:15.963",
+      "tag": "CLAUDE",
+      "msg": "RSI_d=78 sobrecomprado, nivel 50% alcanzado",
+      "data": {
+        "nivel_roi": 0.50,
+        "rsi_d": 78.2,
+        "rsi_w": 71.1,
+        "ema200_rel": "sobre",
+        "macd_estado": "alcista",
+        "ejecutar": true,
+        "urgencia": "alta"
+      }
+    },
+    {
+      "ts": "2026-08-03T10:30:16.400",
+      "tag": "ENVIADA",
+      "msg": "LMT SELL 34 acc @ $16.69 | nivel 50%",
+      "data": {
+        "qty": 34,
+        "lmt_price": 16.69,
+        "modo": "automatico",
+        "order_id": 123456789
+      }
+    },
+    {
+      "ts": "2026-08-03T10:35:00.000",
+      "tag": "FILLED",
+      "msg": "Venta completada @ $16.67",
+      "data": {
+        "precio_fill": 16.67,
+        "ganancia_realizada": 175.45
+      }
+    }
+  ]
+}
+```
+
+**Campos guardados en order_trader (GainsCapture):**
+- `account`, `symbol`, `conid`
+- `clientOrderId` = order_id de IB
+- `orderType` = "LMT"
+- `side` = "SELL"
+- `quantity` = qty_vender
+- `price` = lmt_price
+- `tif` = "DAY"
+- `stampPlace`, `stampSubmit` = datetime.now()
+- `json_detalle` = contexto técnico (roi, rsi, ema, nivel_roi, etc)
+- `json_audit_log` = eventos históricos [[analysis-agent-history-table.md]]
 
 ---
 

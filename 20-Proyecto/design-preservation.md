@@ -155,13 +155,10 @@ Claude solo puede subir el stop, nunca bajarlo ni cancelarlo.
 
 ## Persistencia de decisiones — `order_trader`
 
-### ALTER TABLE necesario
-```sql
-ALTER TABLE order_trader
-ADD COLUMN json_detalle TEXT NULL AFTER hash_id_oportunidad;
-```
+**Preservation registra STOP orders en order_trader** con dos niveles de información:
 
-### Formato estándar `json_detalle`
+### 1. `json_detalle` — Contexto técnico/decisión (ya existe)
+
 ```json
 {
   "tipo": "preservation_stop",
@@ -183,7 +180,7 @@ ADD COLUMN json_detalle TEXT NULL AFTER hash_id_oportunidad;
   "claude": {
     "activar": true,
     "stop_sugerido": 2.78,
-    "razon": "RSI bajando desde zona sobrecomprada, distribución institucional detectada",
+    "razon": "RSI bajando desde zona sobrecomprada...",
     "urgencia": "media"
   },
   "resultado": {
@@ -193,6 +190,98 @@ ADD COLUMN json_detalle TEXT NULL AFTER hash_id_oportunidad;
   }
 }
 ```
+
+### 2. `json_audit_log` — Histórico de eventos ([[analysis-agent-history-table.md]])
+
+```json
+{
+  "events": [
+    {
+      "ts": "2026-08-03T09:27:25.963",
+      "tag": "CLAUDE",
+      "msg": "stop_sugerido=43.86 urgencia=media",
+      "data": {
+        "stop_sugerido": 43.86,
+        "urgencia": "media",
+        "roi": 0.122,
+        "rsi_d": 67,
+        "macd_estado": "alcista"
+      }
+    },
+    {
+      "ts": "2026-08-03T09:27:25.389",
+      "tag": "ATR-CAP",
+      "msg": "stop 44.42 recortado a 42.86",
+      "data": {
+        "stop_before": 44.42,
+        "stop_after": 42.86,
+        "atr": 0.98
+      }
+    },
+    {
+      "ts": "2026-08-03T09:27:25.400",
+      "tag": "ENVIADA",
+      "msg": "STP LMT 4 acc @ 42.86",
+      "data": {
+        "order_id": 886042637,
+        "stop_final": 42.86,
+        "qty": 4
+      }
+    },
+    {
+      "ts": "2026-08-03T21:27:22.930",
+      "tag": "CLAUDE",
+      "msg": "RSI 67 indica sobrecalentamiento. Subir stop",
+      "data": {
+        "stop_sugerido": 43.26,
+        "urgencia": "media"
+      }
+    },
+    {
+      "ts": "2026-08-03T21:27:31.301",
+      "tag": "MODIFICADA",
+      "msg": "Orden cancelada + nueva STP LMT @ 43.26",
+      "data": {
+        "order_id_old": 886042637,
+        "order_id_new": 886042638,
+        "stop_before": 42.86,
+        "stop_new": 43.26
+      }
+    },
+    {
+      "ts": "2026-08-04T10:15:00.000",
+      "tag": "FILLED",
+      "msg": "STOP completado @ 43.20",
+      "data": {
+        "precio_fill": 43.20,
+        "ganancia_realizada_restante": 22.96
+      }
+    }
+  ]
+}
+```
+
+### Campos guardados en order_trader (Preservation)
+
+| Campo | Valor | Propósito |
+|-------|-------|----------|
+| `account` | "U4214563" | Cuenta destino |
+| `vehiculo` | "Stock" o "Crypto" | Tipo vehículo |
+| `symbol` | "BP" | Símbolo |
+| `conid` | 5171 | Contract ID |
+| `clientOrderId` | "886042637" | Order ID IB |
+| `orderType` | "STP LMT" | Stop Limit |
+| `side` | "SELL" | Siempre SELL (protección) |
+| `price` | 42.83 | Límite ejecución (stop × 0.99) |
+| `auxPrice` | 42.86 | Precio STOP actual |
+| `quantity` | 4.0 | Cantidad protegida |
+| `tif` | "GTC" | Good Till Cancelled |
+| `intent` | "PRESERV" | Identificador agente |
+| `status` | "ENVIADA" → "FILLED" | Ciclo vida |
+| `stampPlace` | NOW() | Cuándo se colocó |
+| `stampSubmit` | NOW() | Cuándo se confirmó |
+| `json_detalle` | {decisión completa} | Contexto técnico + Claude |
+| `json_audit_log` | {eventos} | Histórico CLAUDE → ENVIADA → MODIFICADA → FILLED |
 
 ### Ciclo de vida de la orden en `order_trader`
 
