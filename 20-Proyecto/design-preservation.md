@@ -7,7 +7,6 @@
 **Ver también:**
 - [[design-gains-capture.md]] — agente complementario (especulativo, captura upside)
 - [[analysis-agent-history-table.md]] — tabla unificada para aprender de ambos agentes
-- [[guide-gaincapture-how-it-works.md]] — entender cómo GainsCapture vende mientras PS protege
 
 **Activos objetivo:** `categoriaActivo='I'` en tabla `market`  
 - `I` = **Infravalorado** — precio bajo respecto a dividendo/earnings fundamentals

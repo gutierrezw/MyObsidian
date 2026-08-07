@@ -7,7 +7,6 @@
 **Ver también:**
 - [[design-preservation.md]] — agente complementario (defensivo, protege ganancias)
 - [[analysis-agent-history-table.md]] — tabla unificada para aprender de ambos agentes
-- [[guide-gaincapture-how-it-works.md]] — guía paso a paso de cómo funciona
 
 ---
 
