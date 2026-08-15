@@ -64,16 +64,29 @@ def ui_section_bar(parent, text, bg="#37474f", row=0, column=0, columnspan=2,
 ```
 
 Definida en `Modulos_Utilitarios.py`, se importa con `from Modulos_Utilitarios import ui_section_bar`.
-Uso: `ui_section_bar(parent, "Parámetros de Trading", bg="#37474f", row=row, columnspan=2)`.
 
-**Paleta semántica de color por tipo de sesión** (establecida en Editar Plan, reutilizada en toda la app):
+**El color NO se hardcodea en cada call** (viola Regla 4). Se toma de `DataHub.colors["session"]`,
+un grupo nuevo dentro de la misma estructura `colors` que ya carga `bgcolor`/`cgcolor`/`cchart`
+desde la sesión BD `DataHub` (`Class_customer.py`, ver [[ref-datahub]]):
 
-| Color | Hex | Uso |
+```python
+session_colors = {"neutral": "#37474f", "ia": "#1565c0", "danger": "#c0392b", "nested": "#546e7a"}
+session_colors.update(envs_config.get("session_colors", {}))  # override opcional desde BD
+colors["session"] = session_colors
+```
+
+Uso: `ui_section_bar(parent, "Parámetros de Trading", bg=self.colors["session"]["neutral"], row=row, columnspan=2)`.
+`load_from_database()` también sincroniza `DataHub.colors["session"]` en caliente si `envs_config`
+trae la clave `session_colors` (mismo patrón que `bgcolor`/`cgcolor`/`cchart`).
+
+**Paleta semántica de color por tipo de sesión** (default; editable a futuro desde BD igual que el resto de `DataHub.colors`):
+
+| Key | Hex default | Uso |
 |---|---|---|
-| Teal oscuro | `#37474f` | Sesión neutral / técnica (default) |
-| Azul | `#1565c0` | Sesión relacionada a IA |
-| Rojo | `#c0392b` | Sesión de peligro / emergencia |
-| Gris-azulado claro | `#546e7a` | Subsección anidada (un nivel debajo de una sesión) |
+| `neutral` | `#37474f` (teal oscuro) | Sesión neutral / técnica (default) |
+| `ia` | `#1565c0` (azul) | Sesión relacionada a IA |
+| `danger` | `#c0392b` (rojo) | Sesión de peligro / emergencia |
+| `nested` | `#546e7a` (gris-azulado claro) | Subsección anidada (un nivel debajo de una sesión) |
 
 ## Estado de la migración
 
