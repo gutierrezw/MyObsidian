@@ -50,14 +50,48 @@ No crear una paleta nueva. `bgcolor`/`cgcolor`/`cchart` (ver [[ref-datahub]]) ya
 verdad y ya se usan en las 3 pantallas — el problema no era la falta de un sistema de color, era que
 fuente/botón/entry se resolvían a mano en cada popup en vez de apoyarse en `style_app()`.
 
+## Regla 5 — "Sesión" (barra de sección de ancho completo): `ui_section_bar()`
+
+Toda ventana que abre desde **Setup - Inversionista** organiza su contenido en "sesiones" — bloques
+temáticos con un título propio (ej. "Restricciones de Cartera", "Parámetros de Trading"). Cada
+título de sesión debe usar la misma barra de ancho completo, extraída del patrón que ya existía en
+Editar Plan y que le pareció sobrio al usuario:
+
+```python
+def ui_section_bar(parent, text, bg="#37474f", row=0, column=0, columnspan=2,
+                    font=("Segoe UI", 9, "bold"), pady=(8, 4)):
+    ...
+```
+
+Definida en `Modulos_Utilitarios.py`, se importa con `from Modulos_Utilitarios import ui_section_bar`.
+Uso: `ui_section_bar(parent, "Parámetros de Trading", bg="#37474f", row=row, columnspan=2)`.
+
+**Paleta semántica de color por tipo de sesión** (establecida en Editar Plan, reutilizada en toda la app):
+
+| Color | Hex | Uso |
+|---|---|---|
+| Teal oscuro | `#37474f` | Sesión neutral / técnica (default) |
+| Azul | `#1565c0` | Sesión relacionada a IA |
+| Rojo | `#c0392b` | Sesión de peligro / emergencia |
+| Gris-azulado claro | `#546e7a` | Subsección anidada (un nivel debajo de una sesión) |
+
 ## Estado de la migración
 
-| Ventana | Fuente | Botón | Entry | Estado |
-|---|---|---|---|---|
-| Editar Plan (`Class_gestion.py::edit_plan`) | Segoe UI 9 | `Flat.TButton` | bg=bgcolor | ✅ migrado 2026-08-15 |
-| Editar Vehículo (`DashMain.py`) | Segoe UI 9 | `Flat.TButton` | bg=bgcolor | ✅ migrado 2026-08-15 |
-| Diversificación vs Dividendos (`DashMain.py::detalle_graph`) | Segoe UI 8 (botón) | `Flat.TButton` | n/a | ✅ botón migrado 2026-08-15 |
-| Resto de la app (Screener, Consenso, popups de órdenes, Setup general, etc.) | mixto | mixto | mixto | ⏳ backlog, ver `BACKLOG.md` |
+| Ventana | Fuente | Botón | Entry | Sesiones (`ui_section_bar`) | Estado |
+|---|---|---|---|---|---|
+| Editar Plan (`Class_gestion.py::edit_plan`) | Segoe UI 9 | `Flat.TButton` | bg=bgcolor | ✅ 4 sesiones | ✅ migrado 2026-08-15 |
+| Editar Vehículo (`DashMain.py`) | Segoe UI 9 | `Flat.TButton` | bg=bgcolor | n/a (sin sesiones) | ✅ migrado 2026-08-15 |
+| Diversificación vs Dividendos (`DashMain.py::detalle_graph`) | Segoe UI 8 (botón) | `Flat.TButton` | n/a | n/a | ✅ botón migrado 2026-08-15 |
+| Variables de Entorno / "Envs" (`DashMain.py`) | Segoe UI 9 | n/a (sin botones a migrar) | bg=bgcolor | ✅ 4 sesiones + 1 subsección | ✅ migrado 2026-08-15 |
+| Resto de la app (Screener, Consenso, popups de órdenes, Setup general, etc.) | mixto | mixto | mixto | — | ⏳ backlog, ver `BACKLOG.md` |
+
+## Actualización 2026-08-15 (tarde)
+
+Usuario pidió explícitamente extender el alcance del día: *"si quiero que todas las ventanas que
+nacen desde Setup Inversionista queden con el mismo estilo... cada título de 2da pantalla es una
+sesión de la ventana... algo así se puede replicar para las sesiones de la ventana Variables de
+Entorno"*. Se agregó Regla 5 (`ui_section_bar()`) y se migró la 4ta ventana (Variables de Entorno)
+completa, incluyendo Entry/Label a Segoe UI 9 + bg/fg explícitos (16 Entries).
 
 ## Pendiente (fuera de alcance de hoy)
 
