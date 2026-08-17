@@ -361,9 +361,10 @@ ALTER TABLE order_trader ADD COLUMN json_detalle TEXT NULL AFTER hash_id_oportun
 #### Paso 2 — `Modulos_Mysql.py` ✅
 - `select_preservation_context(symbol, account)` — market + sentiment, sin oportunidadesbuysell
 
-#### Paso 3 — `Class_DashBot.py` ✅
+#### Paso 3 — `Class_AgentManager.py` ✅ *(reubicado desde `Class_DashBot.py`)*
 - `_build_preservation_context()` — indicadores técnicos desde DataHub tiempo real
 - `_claude_preservation_eval()` — llama Haiku, retorna stop_sugerido/razon/urgencia
+- `_preservation_get_config()` — carga config una vez por vehículo + gate de intervalo (ver sección Debugging abajo)
 - `_preservation_run_vehiculo()` — integra Claude con fallback a reglas
 
 #### Paso 4 — `DashMain.py` ✅
@@ -378,6 +379,54 @@ ALTER TABLE order_trader ADD COLUMN json_detalle TEXT NULL AFTER hash_id_oportun
 
 Ver diseño completo en `Doc/gains_capture_design.md`.  
 Este agente es independiente: espíritu especulativo, activos `N`, implementación separada.
+
+---
+
+## Debugging — dos gates de intervalo independientes (2026-08-17)
+
+Investigando un supuesto "hang" de `Agente_ManagerPreservation` (BACKLOG #59) se confirmó
+que el agente **nunca estuvo trabado** (thread vivo, verificado con `py-spy dump`). Había
+dos problemas distintos, mezclados, que generaban la confusión:
+
+### 1. Bug real — logger huérfano sin FileHandler (ya corregido)
+
+`self._preservation_logger` apuntaba a `logging.getLogger("Agente.Preservation")`, un
+nombre **nunca registrado** en `Class_debugging.py` (a diferencia de `Agente.Stock`,
+`Agente.Crypto`, etc.), por lo tanto sin `RotatingFileHandler` — sus mensajes se perdían
+silenciosamente. Afectaba 13 puntos del código: `"N posiciones cargadas"`, evaluación por
+posición, colocación/ajuste de STOP y errores. Solo se veían `"config cargada"` y
+`"REVISIÓN"` porque esas dos líneas usan `self._log_stock` (registrado, con handler).
+
+**Fix:** [Class_AgentManager.py:54](../../../MyPython/AppOO/Class_AgentManager.py#L54) —
+`self._preservation_logger = self._log_stock` (reutiliza el logger ya wireado en vez de
+registrar uno nuevo).
+
+### 2. Dos intervalos independientes que pueden confundir al debuggear
+
+El decorador `@wait_rate(intervalo, ...)` sobre `Agente_ManagerPreservation` controla
+**cada cuánto se llama** a la función — es lo que el botón "Forzar" bypassea. Pero
+`_preservation_get_config()` (línea 900-901) calcula un **segundo intervalo,
+independiente**, contra `preservation_state.json`:
+
+```python
+revisiones_dia = pconfig.get("revisiones_dia", 2)   # ← vive en BD, no en archivo
+intervalo_min = 86400 / revisiones_dia               # default: 12h
+```
+
+Si `elapsed < intervalo_min` (medido contra `_last_run_{vehiculo}` en
+`preservation_state.json`), la función retorna `time_revision=False` **sin loguear nada**
+— ni siquiera "REVISIÓN". "Forzar" en la UI solo bypassea el intervalo del decorador; no
+bypassea este segundo gate. Para forzar una revisión completa en debugging hay que además
+vaciar `preservation_state.json` (borrar las claves `_last_run_Stock`/`_last_run_Crypto`).
+
+**`revisiones_dia` no es un archivo** — es una clave dentro de `sesion.parameters` (JSON)
+en MySQL, bloque `"preservation"`, por vehículo. Se edita desde la pantalla de parámetros
+de la app, no a mano.
+
+### Lección para próximas sesiones de debugging
+Si el log de Preservation se corta después de "config cargada"/"REVISIÓN" sin avanzar,
+antes de sospechar un hang: revisar `preservation_state.json` y `revisiones_dia` — es
+frecuente confundir "no tocó" con "está trabado".
 
 ---
 
