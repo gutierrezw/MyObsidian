@@ -457,72 +457,146 @@ alcance antes de tocar `Class_DashBot.py`. Ver [[debate-2026-08-19-integracion-t
 
 ---
 
-## Plan de trabajo — integración riesgos/salida_emergencia (validado capa por capa, 2026-08-20)
+## Plan de trabajo — integración riesgos/salida_emergencia (revisado tras crítica externa, 2026-08-20)
 
-Por pedido explícito del usuario ([[feedback_validar_integracion_por_capa]]), esta propuesta se valida
-contra las 6 capas antes de tocar código, no solo contra Capa 4 donde nació el pedido. Verificado en
-código lo que aplicaba en cada capa; el resto queda como decisión de diseño explícita.
+Por pedido explícito del usuario ([[feedback_validar_integracion_por_capa]]) esta propuesta se validó
+contra las 6 capas, y por pedido adicional del usuario se sometió a **revisión crítica independiente**
+(Opus, sesión nueva sin el historial de quien diseñó el plan — prompt en
+[[prompt-revision-opus-riesgos-salida-emergencia]]). Esa revisión encontró errores de hecho en la
+primera versión de este plan, verificados uno por uno contra el código. Lo que sigue es la versión
+corregida — la tabla original (7 celdas "decisión cerrada") quedó **invalidada en 2 de sus 6 filas**.
 
-### Fase 1 — Capa 2 (Datos): sin cambios, lectura directa
+### Hallazgo 1 — el agente NO corre en 3 vehículos, corre solo en Stock
 
-`Agente_ClaudeIA` corre cada 24h (`@wait_rate(86400, ...)`), no en el hot-path de ciclos frecuentes que
-justifica pasar por `DataHub`. **Decisión:** `select_variablesplan(idcuenta)` se llama directo desde
-`_armar_contexto_ia()` en cada corrida, igual que hoy se hace con portfolio/oportunidades. No se cachea
-en `DataHub`. Nada que construir en esta fase.
+`Agente_ClaudeIA` (`Class_DashBot.py:543`) hace `_load_params("Stock")` hardcodeado (línea 545), inserta
+el trace con `vehiculo="Stock"` fijo (línea 570), el prompt dice literal `"Portfolio actual (Stock)"`
+(línea 861), y `self.vehiculo = "Stock"` está fijado en `__init__` (línea 93). No existe instancia
+Crypto ni BotCrypto de este agente — es **una sola llamada Haiku por día** (`claude-haiku-4-5`,
+`max_tokens=500`, línea 882), no 3.
 
-### Fase 2 — Capa 1 (Configuración): sin sync necesario, confirmar scope
+**Impacto:** el plan original decía "probar primero en Crypto B0000001" y "confirmar que los 3
+vehículos leen la misma fila" — describía un sistema que no existe. Ese error nació exactamente del
+problema que la validación por capas buscaba prevenir: se razonó sobre un modelo mental del sistema,
+no sobre el código. Queda como caso de estudio para [[feedback_validar_integracion_por_capa]] — validar
+capa por capa no sustituye verificar en código cómo corre hoy el componente que se está modificando.
 
-`_edit_riesgos()` (`Class_gestion.py:967`) guarda con `idcuenta = self.datsess["idcuenta"]` — la tabla
-`variablesplan` ya vive en MySQL scoped por cuenta, no por vehículo. A diferencia de `agente_ia.plan`
-(que necesitó `_sync_plan_restricciones()` porque vive en `sesion.parameters` JSON, uno por vehículo),
-`variablesplan` es una única fuente compartida automáticamente por Stock/Crypto/BotCrypto — **no hace
-falta ningún mecanismo de sync nuevo**. Nada que construir en esta fase, solo confirmar en pruebas que
-los 3 vehículos leen la misma fila.
+### Hallazgo 2 — Capa 1 estaba justificada exactamente al revés
 
-### Fase 3 — Capa 4 (Decisión): implementar lo ya documentado
+El plan original decía que `variablesplan` "vive scoped por `idcuenta`, compartida automáticamente
+entre Stock/Crypto/BotCrypto". **Scope por `idcuenta` es aislar, no compartir** — y los `idcuenta` son
+distintos por vehículo (`Class_DashBot.py:100-102`: `self.account` de Stock vs. `self.account_crypto`
+de Crypto, valores distintos). Hoy "funciona" por coincidencia de hardcode: el escritor
+(`Class_gestion.py:759`, `:1819`, `:1930`) y el lector (`Class_DashBot.py:93`) apuntan ambos a
+`"Stock"` — no por diseño. El día que se instancie el agente para Crypto, `select_variablesplan(B0000001)`
+devolvería `[]` sin error ni log: bloque vacío silencioso, la misma clase de bug que motivó pedir la
+validación por capas.
 
-Cambios concretos en `Class_DashBot.py` (código exacto en la sección anterior de este documento):
-1. En `_armar_contexto_ia()`: agregar `ctx["riesgos"]` y `ctx["salida_emergencia"]` filtrando
-   `select_variablesplan(idcuenta)` por `tipo` en Python (la función no filtra por `tipo` en su firma).
-2. Agregar `_riesgos_txt()` y `_salida_emergencia_txt()` (mismo patrón que `_portfolio_txt()`).
-3. Insertar los 2 bloques nuevos en el prompt entre el bloque 4 (gains-candidates) y el bloque 5
-   (rebalanceo) — prompt pasa de 14 a 16 bloques.
-4. Actualizar el bloque 13 (instrucciones de cruce) para que mencione riesgos/salida como criterio de
-   corte de la decisión, no solo contexto informativo — si no, Claude puede leerlo y no priorizarlo.
+### Hallazgo 3 — `variablesplan.ditem`/`observaciones` truncan a 50 caracteres
 
-### Fase 4 — Capa 3 (Señales): decisión explícita, no gap
+`update_variablesplan_item()` y `insert_variablesplan_item()` (`Modulos_Mysql.py:3766-3794`) truncan
+`ditem[:50]` y `observaciones[:50]`. `salida_emergencia` se inserta sin `observaciones`
+(`Class_gestion.py:1996`) → 50 chars totales por criterio. `_edit_riesgos()` limita a `MAX_FILAS = 10`
+(`Class_gestion.py:968`). Techo real: ~10 líneas × 50 chars ≈ 250 tokens — el costo/latencia del prompt
+(pregunta original a Opus) es ruido, la pregunta real es otra: **50 caracteres no alcanzan para un
+criterio de corte de decisión**, solo para un título ("caída fuerte del dólar"). Pedirle a Claude que
+lo trate como criterio (bloque 13) empuja al modelo a completar el significado que falta y citarlo
+como fundamento. **Acción previa a tocar el prompt:** verificar el ancho real de la columna en MySQL;
+si es `VARCHAR(50)` hay que migrar antes de escribir el nuevo texto, y **Capa 1 sí cambia** (contra lo
+que decía la tabla original).
 
-**Decisión:** riesgos/`salida_emergencia` NO alimentan el Consenso Score. El Consenso Score es
-cuantitativo y determinístico (7 votos ponderados); riesgos/salida son criterios cualitativos que solo
-Claude puede interpretar en contexto (Capa 4). Mezclarlos degradaría la reproducibilidad del score.
-Nada que construir en esta fase — se documenta la decisión para que no se reabra sin motivo nuevo.
+### Fase — Capa 2 (Datos): confirmado sin cambios, con matiz de ubicación
 
-### Fase 5 — Capa 5 (Trazabilidad): reusar columna existente, sin migración
+`Agente_ClaudeIA` corre cada 24h, no justifica pasar por `DataHub`. **Matiz que agrega la revisión:**
+el agente ya hace un SKIP temprano sin gastar la llamada API cuando no hay portfolio/oportunidades
+(`Class_DashBot.py:559-566`) — pero ese chequeo ocurre **después** de `_armar_contexto_ia()` (línea 558).
+Si `select_variablesplan()` se llama dentro de `_armar_contexto_ia()`, se ejecuta también en corridas
+que abortan. Ubicar la lectura de riesgos después del gate de SKIP, no dentro de `_armar_contexto_ia()`.
 
-`insert_trace()` (`Modulos_Mysql.py:7742`) ya tiene una columna `gates_ok` (JSON). **Decisión:** no se
-crea columna nueva — se extiende el dict `gates_ok` que ya arma `_claude_ia_eval()` con
-`{"riesgos_considerados": [...], "salida_emergencia_activa": true|false}` al momento de insertar el
-trace. Así queda auditable en `symbol_decision_history`/panel IA Trace qué riesgos pesaron en cada
-decisión, sin tocar el schema de `ia_trace`.
+### Fase — Capa 3 (Señales): decisión confirmada, argumento corregido
 
-### Fase 6 — Capa 6 (Meta-monitoreo): no aplica todavía
+Confirmado que riesgos/`salida_emergencia` no deben alimentar el Consenso Score, pero el argumento
+correcto es de **granularidad**, no de "cualitativo vs. determinístico": el Consenso Score es por
+símbolo, los riesgos son por cuenta/plan — aplicarlos al score desplazaría la escala igual para todos
+los símbolos, sin discriminar nada.
 
-`ia_mejoras` sigue sin construir (backlog propio del agente, ver sección Capa 6 de este documento).
-No hay acción concreta en esta fase — se revisita cuando Capa 6 se implemente.
+**Corolario que el repaso original no vio:** `salida_emergencia` no es una señal, es un **gate de
+portfolio**. Su lugar natural es junto a `gate_consenso_min` / `gate_inst_score_min` / `leverage_max`
+(`Class_DashBot.py:871-873`) como precondición evaluada en código antes de gastar la llamada API — no
+solo como prosa en el prompt. El gancho ya existe sin migración: `insert_variablesplan_item()` escribe
+`valor=0, unidad=''` hardcodeados (`Modulos_Mysql.py:3789`) y nadie los usa hoy — ahí va el umbral
+evaluable. Meterlo solo como texto es la decisión difícil de revertir después: en Fase 3 (ejecución
+automática) ese mismo texto sería lo único entre un criterio de pánico del usuario y una orden real, y
+un prompt no es un gate. **Decidir esto ahora, no en Fase 3.**
 
-### Orden de ejecución sugerido y validación
+### Fase — Capa 4 (Decisión): más trabajo del que sugería "sumar 2 bloques"
 
-1. Fase 3 (código) — es la única fase con cambios reales de código.
-2. Fase 5 (trazabilidad) junto con Fase 3, mismo commit — extender `gates_ok` es trivial una vez que
-   el contexto ya trae riesgos/salida.
-3. Probar primero en **un solo vehículo** (Crypto, cuenta B0000001) antes de propagar — el cambio
-   aumenta tokens del prompt en los 3 vehículos por igual, conviene validar costo/calidad de la
-   respuesta antes de generalizar.
-4. Confirmar en vivo (Fase 2) que Stock/Crypto/BotCrypto ven la misma fila de `variablesplan` sin
-   necesidad de sync — si no fuera así, replantear Fase 2 antes de seguir.
+Cambios en `Class_DashBot.py`:
+1. En `_armar_contexto_ia()` (o después del gate de SKIP, ver Capa 2): `ctx["riesgos"]` /
+   `ctx["salida_emergencia"]` filtrados por `tipo` en Python.
+2. `_riesgos_txt()` / `_salida_emergencia_txt()`.
+3. Si `variablesplan` está vacía para la cuenta: **omitir el bloque, no mandar un texto default**
+   ("sin riesgos declarados" es falso — informa que el usuario evaluó y no tiene riesgos, cuando
+   simplemente nunca cargó nada). Esto obliga a armar las instrucciones del bloque 13 de forma
+   condicional (si no hay riesgos, no referenciarlos) — y el prompt hoy es un f-string monolítico de
+   ~25 líneas (`Class_DashBot.py:856-881`); hay que partirlo para poder condicionar bloques. Más
+   trabajo del que sugería el plan original.
+4. Bloque 13 actualizado para tratar riesgos/salida como criterio de corte — solo cuando el bloque 3
+   efectivamente esté presente.
 
-**Estado:** plan documentado, no implementado. Fases 1, 2, 4 y 6 son decisiones de diseño cerradas
-(sin código pendiente); Fase 3 y 5 son las que requieren tocar `Class_DashBot.py`.
+### Fase — Capa 5 (Trazabilidad): `gates_ok` no se "extiende", se estrena — y la traza propuesta es falsa
+
+`insert_trace()` hoy pasa `gates_ok={}` **literal** (`Class_DashBot.py:575`) — no hay nada que
+extender, se está estrenando (sigue siendo cierto que no requiere migración). Pero calcular
+`riesgos_considerados`/`salida_emergencia_activa` **en Python** (a partir de lo que se envió al
+prompt) registra "le mandé el texto", no "el modelo lo usó" — es trazabilidad de input disfrazada de
+trazabilidad de decisión. En una auditoría futura (Capa 6) ese campo daría `true` en el 100% de los
+casos sin explicar nada. **Arreglo:** agregar el campo al contrato JSON de salida que Claude debe
+devolver (`Class_DashBot.py:878-880`, ej. `"riesgos_aplicados": ["..."]`) y persistir eso en
+`gates_ok` — el que declara haber usado el criterio es el modelo, no el código que armó el prompt.
+
+### Fase — Capa 6 (Meta-monitoreo): sin cambios, con advertencia
+
+`ia_mejoras` sigue sin construir. Advertencia agregada: si se implementa la traza "falsa" de Capa 5
+(calculada en Python), cuando Capa 6 exista va a auditar un historial contaminado — filas con
+`riesgos_considerados: true` que no significan nada. Motivo adicional para resolver Capa 5 bien desde
+el principio.
+
+### Problema de medición (no identificado en el repaso original)
+
+El prompt produce UNA decisión por día. Si el objetivo es que los riesgos "corten decisiones", con una
+decisión diaria el efecto observable es casi nulo — semanas para ver un caso donde el criterio cambió
+algo, indistinguible del ruido. Validar leyendo los `motivo` de `ia_trace` es confirmación por
+narrativa: el modelo va a mencionar los riesgos porque se los pedimos, no porque lo hayan movido. Sin
+resolver — queda como pregunta abierta antes de medir "si sirvió".
+
+### Fase 2 "Voz" — hallazgo colateral, no de esta propuesta
+
+`_propuesta_supervisado()` (`Class_DashBot.py:589`) manda Telegram con botones ✅ Ejecutar / ⏸ Diferir
+y el callback `ia_ejecutar|{trace_id}` existe — pero no se verificó qué hace ese handler. Si "Ejecutar"
+no ejecuta nada todavía, Fase 2 está completa como interfaz pero el botón le miente al usuario. Pendiente
+de revisar, es un problema aparte de esta propuesta puntual.
+
+### Orden de ejecución — corregido
+
+**Pausa corta, no descarte.** El cambio de prompt en sí es sano; 3 cosas antes de escribir código:
+1. Corregir el modelo mental del rollout — el agente es Stock-only, no hay "3 vehículos" que probar
+   ni propagar. Sin esto, cualquier paso de "probar en Crypto primero" da un falso verde (lectura
+   vacía silenciosa, ver Hallazgo 2).
+2. Verificar el ancho real de `variablesplan.ditem` en MySQL y subir el truncado de 50 si aplica
+   (`Modulos_Mysql.py:3766`, `:3783`) — si hay migración, Capa 1 cambia.
+3. Definir el gate ejecutable de `salida_emergencia` sobre `valor`/`unidad` (aunque en Fase 1 solo se
+   lea y no corte todavía) — no dejarlo solo como texto de prompt.
+
+Con eso resuelto, el cambio de prompt + `gates_ok` (con el campo `riesgos_aplicados` declarado por el
+modelo, no calculado en Python) es bajo riesgo. **No implementar Capa 4 + Capa 5 en el mismo commit
+tal como estaba planeado** sin el arreglo de Capa 5 — de lo contrario `ia_trace` queda con una traza
+que no es auditable desde el día uno.
+
+**Confirmado sin cambios por la revisión:** no meter riesgos en el Consenso Score (Capa 3), y no
+cachear en `DataHub` para un agente de 24h (Capa 2) — ambas correctas en la versión original.
+
+**Estado:** plan corregido, no implementado. Ver prompt completo y respuesta íntegra de la revisión en
+[[prompt-revision-opus-riesgos-salida-emergencia]].
 
 ---
 

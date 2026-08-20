@@ -1,6 +1,6 @@
 ---
 tipo: prompt
-estado: pendiente-de-uso
+estado: usado — hallazgos incorporados a design-agente-ia.md
 ---
 
 # Prompt — revisión independiente (Opus) de la propuesta riesgos/salida_emergencia
@@ -10,6 +10,12 @@ estado: pendiente-de-uso
 nueva (sin el historial de quien diseñó el plan) que evalúe críticamente la propuesta y señale
 cabos sueltos. Ver [[design-agente-ia]] (sección "Plan de trabajo — integración riesgos/salida_emergencia")
 y [[debate-2026-08-19-integracion-tabs-datahub]] para el contexto completo.
+
+**Resultado:** la revisión encontró 2 errores de hecho verificados en código (el agente corre
+solo en Stock, no en 3 vehículos; la justificación de Capa 1 estaba invertida — scope por
+`idcuenta` aísla, no comparte) y 1 problema de diseño no visto (`variablesplan.ditem` trunca a
+50 chars, insuficiente para un criterio de decisión). Hallazgos completos incorporados a
+`design-agente-ia.md`. Ver respuesta íntegra al final de este documento.
 
 **Cómo usarlo:** copiar el contenido de la sección "Prompt" completo en una sesión nueva.
 
