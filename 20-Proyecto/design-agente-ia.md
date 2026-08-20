@@ -457,6 +457,75 @@ alcance antes de tocar `Class_DashBot.py`. Ver [[debate-2026-08-19-integracion-t
 
 ---
 
+## Plan de trabajo — integración riesgos/salida_emergencia (validado capa por capa, 2026-08-20)
+
+Por pedido explícito del usuario ([[feedback_validar_integracion_por_capa]]), esta propuesta se valida
+contra las 6 capas antes de tocar código, no solo contra Capa 4 donde nació el pedido. Verificado en
+código lo que aplicaba en cada capa; el resto queda como decisión de diseño explícita.
+
+### Fase 1 — Capa 2 (Datos): sin cambios, lectura directa
+
+`Agente_ClaudeIA` corre cada 24h (`@wait_rate(86400, ...)`), no en el hot-path de ciclos frecuentes que
+justifica pasar por `DataHub`. **Decisión:** `select_variablesplan(idcuenta)` se llama directo desde
+`_armar_contexto_ia()` en cada corrida, igual que hoy se hace con portfolio/oportunidades. No se cachea
+en `DataHub`. Nada que construir en esta fase.
+
+### Fase 2 — Capa 1 (Configuración): sin sync necesario, confirmar scope
+
+`_edit_riesgos()` (`Class_gestion.py:967`) guarda con `idcuenta = self.datsess["idcuenta"]` — la tabla
+`variablesplan` ya vive en MySQL scoped por cuenta, no por vehículo. A diferencia de `agente_ia.plan`
+(que necesitó `_sync_plan_restricciones()` porque vive en `sesion.parameters` JSON, uno por vehículo),
+`variablesplan` es una única fuente compartida automáticamente por Stock/Crypto/BotCrypto — **no hace
+falta ningún mecanismo de sync nuevo**. Nada que construir en esta fase, solo confirmar en pruebas que
+los 3 vehículos leen la misma fila.
+
+### Fase 3 — Capa 4 (Decisión): implementar lo ya documentado
+
+Cambios concretos en `Class_DashBot.py` (código exacto en la sección anterior de este documento):
+1. En `_armar_contexto_ia()`: agregar `ctx["riesgos"]` y `ctx["salida_emergencia"]` filtrando
+   `select_variablesplan(idcuenta)` por `tipo` en Python (la función no filtra por `tipo` en su firma).
+2. Agregar `_riesgos_txt()` y `_salida_emergencia_txt()` (mismo patrón que `_portfolio_txt()`).
+3. Insertar los 2 bloques nuevos en el prompt entre el bloque 4 (gains-candidates) y el bloque 5
+   (rebalanceo) — prompt pasa de 14 a 16 bloques.
+4. Actualizar el bloque 13 (instrucciones de cruce) para que mencione riesgos/salida como criterio de
+   corte de la decisión, no solo contexto informativo — si no, Claude puede leerlo y no priorizarlo.
+
+### Fase 4 — Capa 3 (Señales): decisión explícita, no gap
+
+**Decisión:** riesgos/`salida_emergencia` NO alimentan el Consenso Score. El Consenso Score es
+cuantitativo y determinístico (7 votos ponderados); riesgos/salida son criterios cualitativos que solo
+Claude puede interpretar en contexto (Capa 4). Mezclarlos degradaría la reproducibilidad del score.
+Nada que construir en esta fase — se documenta la decisión para que no se reabra sin motivo nuevo.
+
+### Fase 5 — Capa 5 (Trazabilidad): reusar columna existente, sin migración
+
+`insert_trace()` (`Modulos_Mysql.py:7742`) ya tiene una columna `gates_ok` (JSON). **Decisión:** no se
+crea columna nueva — se extiende el dict `gates_ok` que ya arma `_claude_ia_eval()` con
+`{"riesgos_considerados": [...], "salida_emergencia_activa": true|false}` al momento de insertar el
+trace. Así queda auditable en `symbol_decision_history`/panel IA Trace qué riesgos pesaron en cada
+decisión, sin tocar el schema de `ia_trace`.
+
+### Fase 6 — Capa 6 (Meta-monitoreo): no aplica todavía
+
+`ia_mejoras` sigue sin construir (backlog propio del agente, ver sección Capa 6 de este documento).
+No hay acción concreta en esta fase — se revisita cuando Capa 6 se implemente.
+
+### Orden de ejecución sugerido y validación
+
+1. Fase 3 (código) — es la única fase con cambios reales de código.
+2. Fase 5 (trazabilidad) junto con Fase 3, mismo commit — extender `gates_ok` es trivial una vez que
+   el contexto ya trae riesgos/salida.
+3. Probar primero en **un solo vehículo** (Crypto, cuenta B0000001) antes de propagar — el cambio
+   aumenta tokens del prompt en los 3 vehículos por igual, conviene validar costo/calidad de la
+   respuesta antes de generalizar.
+4. Confirmar en vivo (Fase 2) que Stock/Crypto/BotCrypto ven la misma fila de `variablesplan` sin
+   necesidad de sync — si no fuera así, replantear Fase 2 antes de seguir.
+
+**Estado:** plan documentado, no implementado. Fases 1, 2, 4 y 6 son decisiones de diseño cerradas
+(sin código pendiente); Fase 3 y 5 son las que requieren tocar `Class_DashBot.py`.
+
+---
+
 ## Estado de implementación
 
 | Componente | Estado | Archivo |
