@@ -313,6 +313,150 @@ Sub-tab en `System` → `IA Trace`.
 
 ---
 
+## Estructura del prompt actual (verificado en código, 2026-08-20)
+
+`_armar_contexto_ia()` arma el dict `ctx` y `_claude_ia_eval()` lo convierte en texto
+(`Class_DashBot.py:734-883`). Orden real del prompt enviado a Claude:
+
+| # | Bloque | Fuente del dato | Función texto |
+|---|---|---|---|
+| 1 | Misión (meta_capital/meta_año/ingreso_pasivo_pct/mision) | `ia_config.get("plan", {})` — `agente_ia.plan` | inline (L856-859) |
+| 2 | Fecha | `ctx["fecha"]` | inline |
+| 3 | Portfolio actual (Stock) | `DataHub.manager_positions["Stock"]` | `_portfolio_txt()` |
+| 4 | Posiciones candidatas a captura de ganancia | `gains_capture.min_ganancia` + portfolio | inline (`gains_txt`) |
+| 5 | Rebalanceo — diversificación (sector/región/activos) | `DataHub.manager_buysell` | `_rebalanceo_txt()` |
+| 6 | Ranking rebalanceo (top 5) | `DataHub.rebalanceo["Stock"]["ranking"]` | `_ranking_txt()` |
+| 7 | Oportunidades BUY del sistema | `DataHub.info[symbol]` | `_oport_buy_txt()` |
+| 8 | Oportunidades SELL del sistema | `DataHub.info[symbol]` | `_oport_sell_txt()` |
+| 9 | Candidatos externos (consenso ≥ gate) | `IaTrace.select_candidatos_ia()` | `_candidatos_txt()` |
+| 10 | Contexto FCI (cartera BBVA/Santander) | `DiariaCNV()` | `_fci_contexto_txt()` |
+| 11 | Rotación FCI sugerida (RV→RF misma entidad) | `DiariaCNV()` | `_fci_rotacion_txt()` |
+| 12 | Límites (monto_base, leverage_max, inst_score_min) | `ctx["pinvertir"]` + `ia_config` | inline |
+| 13 | Instrucciones de cruce BUY/SELL/rotación FCI | texto fijo | inline |
+| 14 | Formato de salida JSON exigido | texto fijo | inline |
+
+**Lo que NO entra en el prompt hoy:** las tablas `plan`/`variablesplan` (objetivo narrativo
+`plan.proyecto`, riesgos, esfuerzo, económico, personal, `salida_emergencia`) — `_armar_contexto_ia()`
+nunca llama `select_plan()`/`select_variablesplan()`. Ver [[debate-2026-08-19-integracion-tabs-datahub]]
+para la propuesta concreta de sumar un bloque 4bis "Riesgos identificados por el usuario" +
+"Criterios de salida de emergencia" entre los bloques 4 y 5.
+
+**Salida esperada de Claude:** JSON estricto `{"decision": "BUY|SELL|HOLD|ALERTA", "simbolo": "...",
+"monto": 0, "motivo": "..."}`, enviado vía `_call_claude(prompt, api_key, "ClaudeAPIP", max_tokens=500,
+timeout=20)`.
+
+### Ejemplo (datos ilustrativos, no un trace real)
+
+Salida de `_claude_ia_eval()` con valores de ejemplo, para ver el texto final tal como lo recibe
+Claude (formato exacto, no resumido):
+
+```
+Sos el agente de inversión autónomo. Misión: acumular capital hacia 1.2M USD en 2030 generando
+ingresos pasivos ≥3%/año. Foco en dividendos, uso moderado de apalancamiento IB. En crisis → Hold
+o sumar posiciones, nunca vender por pánico.
+
+Fecha: 2026-08-20
+
+Portfolio actual (Stock):
+  AAPL: ROI=+12.4% | mkt=$4200 | gain=$463 | consenso=5
+  KO: ROI=+8.1% | mkt=$2100 | gain=$156 [GAINS?] | consenso=4
+  O: ROI=-3.2% | mkt=$1800 | gain=-$59 | consenso=3
+
+Posiciones con ganancia ≥$100 (candidatas a captura): KO
+
+Rebalanceo — diversificación actual (▼=subponderado, ▲=sobreponderado, ✓=equilibrado):
+  Sectores (total $8100): Tech=52%▲ | Consumer=26%✓ | REIT=22%▼
+  Regiones (total $8100): US=100%▲
+  Dividendos: ingreso total portafolio $312/año
+
+Ranking rebalanceo (top 5 por motor estructural):
+  O: score=0.81 dim=sector monto=$400
+  VZ: score=0.74 dim=region monto=$350
+
+Oportunidades BUY detectadas por el sistema:
+  VZ: tipo=dividendo qty=20 yield=6.8% gain_inv=+0.021 avgcost_post=$39.10
+
+Oportunidades SELL detectadas por el sistema:
+  (ninguna)
+
+Candidatos externos (consenso ≥ 4):
+  JNJ (Johnson & Johnson): consenso_suma=5 inst_score=0.71 yield=3.1% monto_sugerido=$180
+
+Cartera FCI (ARS=X 30d: -4.20% | señal: RF | total $950):
+  [RV] FBA | 30d: -6.10% | alpha vs USD: -1.90% ✗
+  RF deprimido BBVA: FBA Renta Fija (30d: -1.20%)
+
+Rotación FCI sugerida (si SELL sobre RV, rotar al RF más deprimido de la misma entidad):
+  BBVA → FBA Renta Fija (rend30d: -1.20% | rend90d: -0.40%)
+
+Límites: monto_base=$170 (se ajusta al precio del activo) | leverage_max=1.8x | inst_score_min=0.5
+
+Para BUY: cruzar oportunidades BUY del sistema con candidatos externos y ranking rebalanceo.
+Priorizar los que aparecen en más de una fuente y alineen con dimensiones subponderadas (▼).
+Para posiciones [GAINS?] o SELL del sistema: evaluá si el contexto justifica captura (SELL) u HOLD.
+Si el SELL es sobre un FCI de Renta Variable, en el motivo indicar hacia qué fondo de Renta Fija rotar.
+
+Producí UNA decisión con formato JSON exacto:
+{"decision": "BUY|SELL|HOLD|ALERTA", "simbolo": "TICKER_O_VACIO", "monto": 0, "motivo": "explicación
+en 2-3 oraciones completas: qué acción, por qué ahora, qué se espera lograr. Sin abreviaturas."}
+```
+
+Con este ejemplo, la decisión esperable sería `BUY VZ` (aparece en oportunidades BUY, ranking
+rebalanceo y calza con el sector subponderado REIT/dividendos) — ilustra por qué el cruce de
+fuentes (bloque 13) importa más que cualquier bloque individual.
+
+---
+
+## Propuesta — nuevo bloque de prompt (Capa 4, no implementado)
+
+Objetivo: que la IA decida en función del plan completo del usuario (riesgos y criterios de salida
+que hoy solo viven en Obsidian/UI, nunca leídos por el agente), no solo de las 4 métricas numéricas
+de `agente_ia.plan`. Cambio acotado a `_armar_contexto_ia()` + `_claude_ia_eval()`.
+
+**1. `_armar_contexto_ia()` — agregar al `ctx`:**
+```python
+variables = self.Mysql.select_variablesplan(idcuenta) or []
+ctx["riesgos"] = [v for v in variables if v.get("tipo") == "riesgos"]
+ctx["salida_emergencia"] = [v for v in variables if v.get("tipo") == "salida_emergencia"]
+```
+Nota: `select_variablesplan(idcuenta)` no filtra por `tipo` en la firma — trae todas las filas de
+la cuenta, el filtro se hace en Python como arriba. Campos usables por fila: `ditem`, `observaciones`.
+
+**2. `_claude_ia_eval()` — nueva función texto (mismo patrón que `_portfolio_txt()`):**
+```python
+def _riesgos_txt():
+    rows = ctx.get("riesgos", [])
+    if not rows:
+        return "  (sin riesgos registrados)"
+    return "\n".join(f"  - {r['ditem']}" + (f": {r['observaciones']}" if r.get("observaciones") else "")
+                      for r in rows)
+
+def _salida_emergencia_txt():
+    rows = ctx.get("salida_emergencia", [])
+    if not rows:
+        return "  (sin criterios de salida definidos)"
+    return "\n".join(f"  - {r['ditem']}" + (f": {r['observaciones']}" if r.get("observaciones") else "")
+                      for r in rows)
+```
+
+**3. Nuevo bloque en el prompt** — insertar entre el bloque 4 (gains) y el bloque 5 (rebalanceo)
+de la tabla de arriba:
+```python
+f"Riesgos identificados por el usuario (considerar antes de sumar exposición):\n{_riesgos_txt()}\n\n"
+f"Criterios de salida de emergencia (si se cumplen, priorizar SELL/ALERTA sobre HOLD):\n"
+f"{_salida_emergencia_txt()}\n\n"
+```
+
+**Efecto esperado:** el prompt pasa de 14 a 16 bloques. La instrucción de cruce (bloque 13) también
+debería actualizarse para mencionar explícitamente los riesgos/salida como criterio de corte, no solo
+de contexto informativo — sin eso, Claude puede leer el bloque y no priorizarlo en la decisión final.
+
+**Estado:** propuesto y documentado, no implementado. Pendiente de que el usuario confirme el
+alcance antes de tocar `Class_DashBot.py`. Ver [[debate-2026-08-19-integracion-tabs-datahub]] (Historial
+2026-08-20) para el contexto de la decisión.
+
+---
+
 ## Estado de implementación
 
 | Componente | Estado | Archivo |
@@ -452,6 +596,12 @@ Screenshot del panel `DataHub - Símbolos` (System → DataHub) mostrando un sí
 señaló que este es el punto donde confluyen las pestañas `BuySell`, `Rebalanceo`, `Sell IA`,
 `Buy IA`, `Symbol Events` y `Alertas`: todas leen del mismo `DataHub.info[symbol]`.
 
+**Aclaración (2026-08-20):** verificado en código que "Sell IA"/"Buy IA" en la UI son
+`ModeloOportunidadesSell`/`ModeloOportunidadesBuy` (`Class_IA_modelos.py`, RandomForest) — un
+pipeline de ML clásico, distinto del `Agente_ClaudeIA` de Capa 4. Ambos modelos ML están bien
+diferenciados entre sí; la ambigüedad real es de nombre de pestaña vs. sistema: no deben confundirse
+con `Agente_ClaudeIA` al hablar de autonomía. Ver [[debate-2026-08-19-integracion-tabs-datahub]].
+
 Primera vez que se confirma en vivo (no solo en el diagrama de capas de este doc) que el dato fluye
 Capa 2 (Datos) → Capa 3 (Señales) → Capa 4 (Decisión BUY/SELL IA) → Capa 5 (Symbol Events/Alertas
 como trazabilidad) sobre el mismo objeto, para el mismo símbolo, en tiempo real.
@@ -459,8 +609,8 @@ como trazabilidad) sobre el mismo objeto, para el mismo símbolo, en tiempo real
 **Abre pregunta para próxima sesión** (usuario: "lanzando ideas para discusión") — ver
 [[debate-2026-08-19-integracion-tabs-datahub]] en `30-Gestion/debates/`: si Symbol
 Events/Alertas es el lugar natural para enganchar el gate de `salida_emergencia` (idea de la
-sección siguiente) y qué tan lejos está hoy `Sell IA`/`Buy IA` de una decisión autónoma real vs.
-solo mostrar candidatos.
+sección siguiente) y qué tan lejos está hoy `Agente_ClaudeIA` de ejecución automática (Fase 3) vs.
+solo mostrar candidatos para revisión humana.
 
 **Primer caso concreto ya resuelto (2026-08-19, mismo día):** al revisar el panel superior de KPIs
 (`Total dGyP`, `Leverage (D/K %)`, `Deuda Total`, `UnP&L vs Capital`, `Beta Portafolio`,
