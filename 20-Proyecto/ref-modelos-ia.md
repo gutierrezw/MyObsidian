@@ -317,7 +317,29 @@ metrics = {
               └─────────────────────────────────────┘
 ```
 
-> **Modo etiquetado:** se activa automáticamente cuando no existe el archivo `.pkl` del modelo. Es el mecanismo para acumular muestras cuando el dataset es insuficiente. Para activarlo manualmente: borrar `modelo_buyv01.pkl` y `modelo_buyv01_metrics.pkl` del directorio `tmp/`.
+> **Modo etiquetado:** ver sección [Modo Etiquetado (Buy y Sell)](#modo-etiquetado-buy-y-sell) para el mecanismo completo (activación automática vs. manual, persistencia).
+
+---
+
+## Modo Etiquetado (Buy y Sell)
+
+Mecanismo para acumular muestras de entrenamiento cuando el dataset es insuficiente (< ~80-100, ver Notas Técnicas #6). Mientras está activo, **todas** las oportunidades se envían a Telegram con botones ✅ Aprobar / ❌ Rechazar (`origen="system"`), sin pasar por el modelo — el resultado de cada aprobación/rechazo alimenta `recomendado=1`/`-1` en la tabla `oportunidades`, que es el dataset de entrenamiento.
+
+### Activación automática
+Si `load_modelo()` no encuentra el `.pkl` del modelo (`self.IAbuy.modelo is None` / equivalente Sell), `evaluar_oportunidades_*_con_IA()` cae al modo etiquetado sin intervención manual (`Class_DashBot.py`).
+
+### Activación/desactivación manual — botón "Modelo ON"
+Tabs **"Buy IA"** / **"Sell IA"** → botón junto a "Modelo"/"Entrenar":
+- **"Modelo ON"** (gris) → modo etiquetado inactivo, el modelo predice normalmente.
+- **"Etiquetando"** (rojo) → modo etiquetado forzado.
+
+Click llama a `chatbot._set_modo_etiquetado(tipo, valor)` (`Class_DashBot.py`), que:
+1. Actualiza `self.modo_etiquetado_buy` / `self.modo_etiquetado_sell` en memoria.
+2. Persiste `modo_etiquetado: true/false` en el JSON `paramts` de la tabla `modelos_ia` (clave `modelo_buyv01` / `modelo_sellv01`) — **independiente de si existe el `.pkl`**, sobrevive reinicios.
+
+Con el flag en `true`, `evaluar_oportunidades_*_con_IA()` ni siquiera llama `load_modelo()` — evita el `joblib.load()` innecesario y envía directo a etiquetado.
+
+> **Importante:** el flag manual tiene prioridad y persiste aunque el `.pkl` exista y sea válido. Si quedó en `true` (p. ej. tras forzar etiquetado para juntar muestras), el modelo **no vuelve a predecir automáticamente** aunque se reentrene — hay que apagarlo a mano ("Etiquetando" → click → "Modelo ON") una vez reunidas suficientes muestras nuevas.
 
 ---
 
@@ -381,6 +403,7 @@ if __name__ == "__main__":
 - Botón "Entrenar" ejecuta `run_entrenamientoBuy()` / `run_entraminetoSell()`
 - Muestra métricas del modelo
 - Botón **"Modelo"** abre el panel de configuración directamente desde la UI
+- Botón **"Modelo ON" / "Etiquetando"** fuerza modo etiquetado manual — ver [Modo Etiquetado (Buy y Sell)](#modo-etiquetado-buy-y-sell)
 
 ### Cómo actualizar parámetros del modelo (sin tocar código ni BD manualmente)
 
@@ -418,4 +441,4 @@ El panel expone todos los parámetros del modelo editables en tiempo real:
 4. **Timeframes**: Por defecto solo usa diario `["d"]` para reducir features
 5. **NaN Handling**: Elimina columnas con más del 50% de NaN; indicadores con `NaN`/`Infinity` se sanitizan a `null` antes de insertar en BD
 6. **Dataset mínimo**: Se necesitan ~80-100 muestras etiquetadas para que el modelo generalice correctamente. Con menos muestras las métricas CV son poco confiables (alta varianza ±std)
-7. **Modo etiquetado**: Sin `.pkl` el sistema envía todas las oportunidades por Telegram para etiquetado manual — mecanismo para acumular dataset
+7. **Modo etiquetado**: ver [Modo Etiquetado (Buy y Sell)](#modo-etiquetado-buy-y-sell) — automático (sin `.pkl`) o forzado por botón, persistido en BD
