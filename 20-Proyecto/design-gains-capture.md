@@ -153,47 +153,61 @@ Ejecuta rápido en mercado activo sin regalar precio. No se usan órdenes MKT.
 
 ---
 
-## Modos de operación — botón en panel Agentes
+## Modos de operación — CÓDIGO REAL
 
-El panel Agentes (`agentes_system()`) tiene un botón toggle junto a "Activar todos":
+**Vocabulario real** (distinto al del diseño original `automatico`/`autorizado`):
+`AUTONOMO` / `SUPERVISADO` / `OBSERVACION`. La lógica es **fail-closed**: solo
+`gc_modo == "AUTONOMO"` ejecuta en vivo; cualquier otro valor, incluido uno no
+reconocido, pide confirmación por Telegram (fix 2026-08-21, antes era fail-open por un
+`in ("OBSERVACION","SUPERVISADO")` que dejaba pasar valores no listados).
 
-```
-[ Activar todos ]   [ ⚡ GainsCapture: Automático ]   ← verde
-[ Activar todos ]   [ 🔐 GainsCapture: Autorizado ]   ← naranja
-```
+**Botón real:** `📈 GC:{modo}` en `DashMain.py` (`_toggle_gc_modo()`), no el botón
+verde/naranja de dos estados descrito originalmente. `AUTONOMO` está **deshabilitado en
+la UI** para GainsCapture hasta resolver H1/H5 de la revisión Opus (el switch se puede
+setear en BD pero no desde el botón).
 
-**Implementación:**
-- `DataHub.gains_capture_modo: str = "automatico"` (class var)
-- Persiste en `tmp/gains_capture_config.json` via `write_json_tmp`
-- En inicio de app lee el estado guardado via `read_json_tmp`
+**Implementación real:**
+- `DataHub.gains_capture_modo` (class var, sin valor fijo hardcodeado como "automatico")
+- Se lee de `sesion.parameters["gains_capture"]["modo"]` en MySQL, **no** de
+  `tmp/gains_capture_config.json` — ese archivo no se usa para el modo.
+- Default si la clave falta: `"SUPERVISADO"` (antes era el string obsoleto `"automatico"`
+  en `Class_customer.py`, corregido 2026-08-21 porque no coincidía con ningún valor que
+  el gate reconociera).
+- El botón en `DashMain.py` sí actualiza `DataHub.gains_capture_modo` en caliente, sin
+  reiniciar — a diferencia de `min_roi`/`min_ganancia` que quedan cacheados.
 
-**Modo `automatico`** (sin presencia del usuario):
-1. Claude valida técnicos → decide ejecutar
+**Modo `AUTONOMO`** (sin presencia del usuario, actualmente deshabilitado en UI):
+1. Claude valida técnicos → decide `accion: "vender"`
 2. LMT enviada a IB directamente
-3. Notificación Telegram posterior informando la acción tomada
+3. Alert Telegram informativo posterior (`DataHub.add_alert(..., telegram=True)`)
 
-**Modo `autorizado`** (quiero confirmar antes):
-1. Claude valida técnicos → prepara la orden
+**Modo `SUPERVISADO`/`OBSERVACION`/cualquier otro** (pide confirmación):
+1. Claude valida técnicos → prepara la propuesta
 2. Telegram envía propuesta:
    ```
-   📈 GainsCapture — SKLZ
-   Nivel ROI 50% alcanzado
-   Vender 34 acc LMT $19.50
-   RSI_d=78 sobrecomprado — urgencia: alta
-   /ok_SKLZ  |  /no_SKLZ
+   📈 GainsCapture — PBR
+   ROI lote: 33.0% | Ganancia: $120
+   Escenario: 33% | Vender 12 acc LMT $19.50
+   RSI_d=78 sobrecomprado — señal de toma de ganancias
+   /ok_PBR  |  /no_PBR
    ```
-3. `gains_capture_state` → `estado: "pendiente_autorizacion"`
-4. `/ok_SKLZ` → coloca la orden → flujo normal de fill
-5. `/no_SKLZ` → nivel marcado "omitido_manual", re-evalúa en 6h
-6. **Sin respuesta en 30 minutos → propuesta cancelada** (conservador — no ejecuta sin confirmación)
+3. `gains_capture_state[symbol]` → `estado: "pendiente_autorizacion"`, guarda la propuesta completa (`escenario`, `qty`, `lmt_price`, `conid`, `account`, `det`) en `pendiente`.
+4. `/ok_<SYMBOL>` (`handle_gains_capture_ok`) → coloca la orden → flujo normal de fill
+5. `/no_<SYMBOL>` (`handle_gains_capture_no`) → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
+6. **Sin respuesta en 30 minutos → propuesta cancelada** (`elapsed > 1800`, coincide con el diseño)
 
 ---
 
 ## Flujo de estados por símbolo
 
+Los 4 estados y el timeout de 30 min coinciden exactamente con el diseño original. La
+condición de entrada al flujo es distinta (ver mecanismo real arriba):
+
 ```
 [normal]
-  ↓  ROI >= nivel.roi  AND  nivel no ejecutado  AND  Claude dice ejecutar
+  ↓  algún lote con roi_lote >= min_roi AND ganancia_lote >= min_ganancia
+  ↓  AND escenario elegido por Claude (dentro de escenarios_disponibles) da vender_qty > 0
+  ↓  AND Claude dice accion="vender"
 Colocar LMT SELL parcial  →  [escalon_pendiente]
   (guarda escalon_order_id en gains_capture_state)
 
@@ -329,6 +343,10 @@ Cada orden guarda el contexto técnico + decisión Claude:
 
 ## Plan de implementación
 
+**Estado 2026-08-21: implementado, con el mecanismo de venta y el schema de Claude
+distintos a lo planeado abajo — ver secciones "CÓDIGO REAL" arriba.** Se deja el plan
+original como referencia histórica de los pasos ejecutados, no como pendiente.
+
 ### Paso 1 — BD
 - `order_trader.json_detalle` ya existe (creado en Fase 1 de preservation)
 - Sin cambios de schema adicionales
@@ -372,6 +390,8 @@ Cada orden guarda el contexto técnico + decisión Claude:
 
 ## Pendientes / preguntas abiertas
 
-- [ ] ¿`Agente_GainsCapture` corre en el mismo hilo que `Agente_ManagerPreservation` o en uno separado?
-- [ ] Si ambos agentes operan sobre SKLZ simultáneamente (Preservation pone STOP, GainsCapture pone LMT SELL): ¿hay riesgo de conflicto en IB? Verificar que IB permita STOP + LMT abiertos al mismo tiempo sobre el mismo símbolo
-- [ ] Definir intervalo del agente: `@wait_rate(43200)` (2 revisiones/día) o más frecuente para activos muy volátiles
+- [x] ¿`Agente_GainsCapture` corre en el mismo hilo que `Agente_ManagerPreservation` o en uno separado? → Separado: `Agente_GainsCapture` vive en `Class_DashBot.py` (trading/mercado), `Agente_ManagerPreservation` en `Class_AgentManager.py` (infraestructura), cada uno con su propio `@wait_rate`.
+- [ ] Si ambos agentes operan sobre el mismo símbolo simultáneamente (Preservation pone STOP, GainsCapture pone LMT SELL): ¿hay riesgo de conflicto en IB? **Sigue sin resolver — es H5 en [[resultado-revision-opus-preservation-gainscapture]], bloqueado por depender de que `maximiza_sell_lotes()` acote qty contra la posición comprometida, cosa que hoy no hace de forma verificable entre los dos agentes.**
+- [x] Definir intervalo del agente → `@wait_rate(1800)` fijo (30 min), no `revisiones_dia` configurable como decía el diseño original.
+- [ ] Techo de reglas fijas sobre `vender_qty` en Python post-Claude (equivalente al piso que ya tiene Preservation) — pendiente, depende de decidir si se agrega sobre el mecanismo por lotes actual.
+- [ ] El fallback fail-closed cuando Claude falla (esta sesión lo documentó como divergencia del diseño original, que era fail-open) — decidir explícitamente con el usuario si se mantiene o se revierte al comportamiento documentado originalmente.
