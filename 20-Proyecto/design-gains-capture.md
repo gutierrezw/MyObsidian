@@ -1,8 +1,11 @@
 # Agente_GainsCapture — Diseño
 
-**Estado:** Diseño completo — pendiente implementar  
-**Fecha diseño:** 2026-06-03  
-**Prioridad:** Alta (ítem 53 backlog)
+**Estado:** Implementado — este documento fue reescrito 2026-08-21 para reflejar el código
+real (`Class_DashBot.py:_gains_capture_run`), que divergió del diseño original en el
+mecanismo de venta y en el schema de decisión de Claude. Ver [[resultado-revision-opus-preservation-gainscapture]]
+H1/H9/H10 para el detalle de la revisión que detectó las divergencias.
+**Fecha diseño original:** 2026-06-03 — **Fecha ajuste a código real:** 2026-08-21
+**Prioridad:** Alta (ítem 53 backlog) — bloqueado en AUTONOMO hasta resolver H5 (gate cruzado con Preservation)
 
 **Ver también:**
 - [[design-preservation.md]] — agente complementario (defensivo, protege ganancias)
@@ -31,8 +34,8 @@ su movimiento, no protegiéndose de él.
 |---|---|---|
 | Espíritu | **Defensivo** — proteger lo ganado | **Especulativo** — capturar upside |
 | Activos | `I` (Infravalorado: dividendo, fundamentals sólidos) | `N` (Sin dividendos: growth/volátil) |
-| Acción | Coloca STOP trailing | Vende parcialmente en niveles ROI |
-| Trigger | ROI >= 10% | ROI >= 50% (primer nivel configurable) |
+| Acción | Coloca STOP trailing | Vende parcialmente por escenario (25%/33%/100% de los LOTES en ganancia) |
+| Trigger | ROI >= 10% | ROI >= `min_roi` (default 20%) **y** ganancia >= `min_ganancia` (default $100), evaluado por lote individual |
 | Claude decide | Dónde poner el stop | Si hay más recorrido o vender ahora |
 | Nivel jerárquico | N3 — Decisiones | N3 — Decisiones |
 
@@ -45,38 +48,66 @@ su movimiento, no protegiéndose de él.
 
 ---
 
-## Config en `sesion.parameters`
+## Config en `sesion.parameters` — CÓDIGO REAL
 
-Sección propia `"gains_capture"`, independiente de `"preservation"`:
+Sección propia `"gains_capture"`, independiente de `"preservation"`, dentro de los
+`parameters` de la sesión Stock en MySQL (no en un JSON de `tmp/`):
 
 ```json
 {
   "gains_capture": {
-    "niveles": [
-      {"roi": 0.50, "vender_pct": 0.25},
-      {"roi": 1.00, "vender_pct": 0.50},
-      {"roi": 1.50, "vender_pct": 0.25}
-    ],
-    "revisiones_dia": 2
+    "modo": "SUPERVISADO",
+    "min_roi": 0.20,
+    "min_ganancia": 100.0
   }
 }
 ```
 
-`vender_pct` se aplica sobre la **posición corriente de IB** en el momento de ejecución.  
-Si `gains_capture` no está en el config → agente deshabilitado sin error.
+- Si la clave `gains_capture` no está presente en `parameters` → agente deshabilitado sin error (SKIP, `_gains_capture_run` corta antes de evaluar símbolos).
+- `min_roi`/`min_ganancia` sí tienen default en código (0.20 / $100.0) si la clave `gains_capture` existe pero no las trae — pero el bloque en sí es obligatorio.
+- No hay `niveles` array ni `revisiones_dia`: el intervalo del agente es fijo, `@wait_rate(1800)` (cada 30 min), no configurable desde BD.
+- El JSON de `parameters` se cachea en memoria (`self._params_cache`) al primer uso — cambiar `min_roi`/`min_ganancia` en BD no toma efecto sin reiniciar el proceso. `modo` sí es dinámico (ver más abajo).
+
+**Diseño original (obsoleto, no implementado así):** un array `niveles` de escalones ROI
+(`{"roi": 0.50, "vender_pct": 0.25}`, ...) donde cada nivel se ejecutaba una sola vez y
+`vender_pct` se aplicaba en cascada sobre la posición restante de IB. Este mecanismo
+**no existe en el código** — fue reemplazado por el reparto por lotes descrito abajo.
 
 ---
 
-## Ejemplo SKLZ (avg cost $11.18, 136 acc)
+## Mecanismo real de venta — reparto por LOTES, no por % de posición
 
-| Precio | ROI | Acción |
-|---|---|---|
-| $16.77 | +50% | Claude valida técnicos → vender 34 acc (25% de 136) LMT $16.69 |
-| $22.36 | +100% | Claude valida técnicos → vender ~51 acc (50% de las 102 restantes) LMT $22.25 |
-| $27.95 | +150% | Claude valida técnicos → vender ~25 acc (25% de las 51 restantes) LMT $27.81 |
+`DataHub.maximiza_sell_lotes(list_gain, position, costobase)` reparte por **conteo de
+lotes en ganancia**, no por cantidad de acciones ni por % de la posición corriente. Para
+cada uno de tres escalones (25%, 33%≈1/3, 100%), un lote se incluye en el total del
+escenario solo si `(lotes_incluidos + 1) / total_lotes_en_ganancia <= umbral`:
 
-`Agente_ManagerPreservation` sigue corriendo en paralelo sobre SKLZ si tiene ganancia >= 10%,
-pero como `categoriaActivo='N'`, su STOP es más amplio (ATR × 2.5). Los dos agentes conviven.
+- **"25%"** solo es matemáticamente alcanzable con **≥4 lotes** en ganancia (1/4 ≤ 0.25).
+- **"33%"** solo es alcanzable con **≥3 lotes** (1/3 ≤ 0.336).
+- **"100%"** vende todos los lotes en ganancia — el símbolo puede tener 1 solo lote y ya
+  cumple "100%".
+
+**Confirmado con el usuario (2026-08-21) que esto es diseño intencional**, no un bug: el
+espíritu siempre fue "vender 25%/33%/100% de los LOTES que tienen ganancia" para poder
+operar también con lotes completos, no fraccionar acciones dentro de un lote. La
+consecuencia — que "25%"/"33%" den 0 acciones con pocos lotes — es matemática, no un
+error de cálculo (era el hallazgo H1 de la revisión Opus, reencuadrado tras esta
+aclaración).
+
+**Fix aplicado 2026-08-21** (`escenarios_disponibles` en `_gains_capture_run`): antes de
+pedirle a Claude que elija escenario, el código calcula cuáles son alcanzables según
+`len(list_gain)` del símbolo y solo esos se ofrecen — Claude ya no puede elegir "25%" en
+un símbolo con 2 lotes y terminar en una venta de 0 acciones cancelada.
+
+**Ejemplo real (cartera 2026-08-21, vía `AppTest/replay_maximiza_sell_lotes.py`):**
+símbolos con 1-2 lotes en ganancia (BABA, UL, ...) solo reciben `["100%"]`; símbolos con
+3 lotes (ABEV, RELX, PHYS) reciben `["33%", "100%"]`; símbolos con ≥4 lotes (DLR, PBR, ...)
+reciben los tres escenarios.
+
+`Agente_ManagerPreservation` sigue corriendo en paralelo sobre el mismo símbolo si tiene
+ganancia >= 10%, pero como `categoriaActivo='N'`, su STOP es más amplio (ATR × 2.5). Los
+dos agentes conviven — **sin gate cruzado** (ver H5 en [[resultado-revision-opus-preservation-gainscapture]],
+sigue bloqueado).
 
 ---
 
@@ -95,13 +126,23 @@ son favorables para continuar subiendo.
 | Precio vs EMA50 diaria | Acelerando por encima | Tocando o debajo |
 | Precio vs EMA200 diaria | Lejos por encima | Cerca o debajo |
 
-**Respuesta Claude (JSON):**
+**Respuesta Claude (JSON) — CÓDIGO REAL** (`_gains_capture_claude_eval`):
 ```json
-{"ejecutar": true, "razon": "RSI_d=78 sobrecomprado, señal de toma de ganancias", "urgencia": "alta"}
+{"accion": "vender", "escenario": "33%", "razon": "RSI_d=78 sobrecomprado, señal de toma de ganancias"}
 ```
 
-- `ejecutar: false` → nivel omitido en este ciclo, re-evalúa en el próximo
-- Claude falla (timeout) → ejecuta igual usando solo la regla de nivel ROI (fallback a reglas)
+- `escenario` está restringido en el prompt/enum a los valores de `escenarios_disponibles`
+  (solo los alcanzables por conteo de lotes, ver arriba) — no siempre las 3 opciones.
+- `accion: "esperar"` → símbolo omitido en este ciclo, re-evalúa en el próximo (sin
+  guardar estado especial).
+- **Claude falla o no responde → el código NO ejecuta con fallback a reglas.** Es
+  fail-closed: `if not claude_result or claude_result.get("accion") != "vender": continue`
+  (SKIP, se loguea el motivo). Esto es lo opuesto al diseño original ("ejecuta igual
+  usando solo la regla de nivel ROI") — más conservador, decisión de facto no revisada
+  explícitamente con el usuario, dejar constancia por si se quiere cambiar.
+- El campo `"urgencia"` del diseño original no se usa en el schema real (queda en el
+  ejemplo del audit log más abajo por herencia del diseño, pero `_gains_capture_claude_eval`
+  no lo pide ni lo recibe).
 
 ---
 
