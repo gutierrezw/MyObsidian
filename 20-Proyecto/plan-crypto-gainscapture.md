@@ -126,13 +126,43 @@ Las compras no cambian de valor.
 `mtmgp` −351.179 → **+129.278**. El `hash_id` no incluye la comisión, así que un `sync_trades`
 posterior no la duplica.
 
-**Pendiente (no ejecutado):** el histórico sigue con el error — Crypto 54 ventas
-($1.792,91 → ≈$1.833,01) y BotCrypto 439 ventas (−$91,15 → ≈−$145,23). No se puede corregir con
-SQL a ciegas: `booktrading` no guarda `commissionAsset` y las comisiones pagadas en BNB se
-corregirían mal. Requiere releer `myTrades` de Binance.
+**Histórico saneado — 2026-08-22.** `AppTest/run_fix_comisiones_crypto.py` releyó `myTrades`
+de Binance (`BinanceClient(vehiculo=...)`, paginado por `fromId`), unió por `idtrans` y recalculó
+con el mismo `comision_a_usd()`. `importe` no se recalcula: sale por álgebra de la fila existente
+(`gpreal_new = gpreal_old + comision_old − comision_new`), así que no hizo falta volver a correr el
+emparejador de lotes. Cobertura **100%**: ninguna venta quedó sin su trade en Binance.
 
-> **Impacto en la Etapa 1:** los umbrales `min_ganancia` se calibran contra ganancias que hasta
-> hoy venían mal calculadas en las ventas. Recalibrar después de tener el histórico saneado.
+| | B0000001 / Crypto | B0000002 / BotCrypto |
+|---|---|---|
+| Ventas | 54 | 439 |
+| Corregidas | 46 (8 ya estaban bien) | 439 |
+| Cambian de signo | 0 | 3 (ICPUSDT) |
+| Delta neto `gprealizadas` | +$0,24 | +$1,26 |
+
+Backups con los `UPDATE` de reversa en `AppTest/backups/backup_comisiones_<cuenta>_<stamp>.sql`.
+
+> **Corrección de una estimación previa de esta misma sesión.** Antes de correr el script estimé
+> el impacto con SQL (`tarifacomision − tarifacomision/preciotrans`, es decir asumiendo que toda
+> fila guardaba `commission × price`) y proyecté **−$64 y 26 cambios de signo**. Los `myTrades`
+> reales muestran que varias filas (VET, DOGE) no seguían ese patrón, así que la aproximación
+> estaba mal en buena parte del histórico. **El cuadro de arriba es el bueno.**
+
+Lo que sí se confirmó es la mecánica: todos los fees son `USDT` (quote); en monedas > $1 la
+comisión quedó inflada (ICP 0,2666 → 0,0779 = precio de ICP) y en las < $1 subestimada
+(VET 0,00057 → 0,0793). Por eso el neto casi se cancela, pero **fila por fila el error es real** —
+las 3 ventas de ICP que pasan de pérdida a ganancia son exactamente las que contaminaban las
+etiquetas del modelo de venta (`Batch_Oportunidades_sell-ejecutadas.py:189` etiqueta con
+`gprealizadas > 0`, y la línea 43 deriva el ROI de `mtmgp`).
+
+> **Impacto en la Etapa 1:** con un delta neto de $1,50 sobre 485 ventas, `min_ganancia` **no
+> necesita recalibrarse** por este motivo. Queda descartado como bloqueador.
+
+**Hallazgo colateral — no es de comisiones.** Al medir el arrastre hacia `diaria_performance`
+apareció que esa tabla no refleja las ganancias realizadas de Crypto/BotCrypto: de 181
+combinaciones fecha+símbolo con ventas, 82 no tienen fila y 78 tienen `gyp_dia` distinto
+(+$186,95 Crypto / −$78,25 BotCrypto sin reflejar). Es **preexistente** y de otro orden de
+magnitud. Registrado como **BACKLOG #82**, con alcance limitado a diagnóstico: rehacer esa
+historia arrastra extractos, diaria y performance — tres capas encadenadas, no una tabla.
 
 ## 4. Próximo paso al retomar
 
