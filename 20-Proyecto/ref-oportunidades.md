@@ -42,6 +42,32 @@ oportunity_handler_buy   oportunity_handler_sell
                5 BUY + 5 SELL
 ```
 
+### Umbral SELL — se mide sobre la CLASE, no sobre el símbolo (2026-08-22)
+
+Una fila SELL no es "el símbolo": `csv_OptionSales_write` escribe **una fila por clase**
+(25% / 33% / 100% de los lotes en ganancia, ver `maximiza_sell_lotes()` en
+[[design-gains-capture]]). El piso de ganancia se validaba sobre la suma de todos los lotes
+del símbolo y después las clases salían sin volver a validarse: un símbolo con $200 generaba
+clases de $27 y $46 que igual llegaban al Telegram.
+
+| Umbral | Se aplica a | Dónde |
+|---|---|---|
+| `min_roi` | cada **lote** (calidad intrínseca) | `lotesGain()` / filtro previo |
+| `min_ganancia` | cada **clase** (es la orden que paga comisión) | `csv_OptionSales_write`, `readCSV_sell`, `get_top_sell` |
+
+- Fuente única: `DataHub.gains_config(vehiculo, "gains_oportunidades")` — umbrales **por
+  vehículo** desde `sesion.parameters`, con fallback a los globales `MinProfit`/`MaxRoi`.
+  Hoy: Stock y Crypto en `{"min_roi": 0.09, "min_ganancia": 90}`; BotCrypto sin bloque (usa
+  los globales).
+- Sobre el símbolo queda solo un pre-filtro barato: si el símbolo entero no llega al piso,
+  ninguna de sus clases puede llegar.
+- `readCSV_sell` dejó de hacer **fail-open** — devolvía el DataFrame completo sin filtrar
+  cuando ninguna fila calificaba. Ahora devuelve vacío.
+- ⚠️ `Agente_ManagerSell` llama `readCSV_sell(filtrar=False)` — bypass explícito, hoy inocuo
+  porque el CSV ya viene filtrado en origen.
+- ⚠️ El `factor` de divisa no se aplica al comparar contra el piso: en BBVA.ARS / SANT.ARS el
+  profit está en pesos y pasa cualquier umbral en dólares. Pendiente.
+
 ---
 
 ## 2. Regla BUY vs DIVIDENDS
@@ -158,5 +184,6 @@ BD oportunidades (tipo='buy' / tipo='sell')
 ## Historial
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| 2.1 | 2026-08-22 | Umbral SELL por CLASE y por vehículo (`gains_oportunidades`), fail-open cerrado en `readCSV_sell` |
 | 2.0 | 2026-06-29 | Unificación buy+sell, score híbrido TOP10, elimina duplicados |
 | 1.0 | 2026-04 | Documentos separados ref-regla-buy, ref-modelo-buy, ref-modelo-sell |

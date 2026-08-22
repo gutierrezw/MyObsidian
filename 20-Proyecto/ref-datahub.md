@@ -81,14 +81,31 @@ colors = {
 
 | Variable | Tipo | Default | Descripción |
 |----------|------|---------|-------------|
-| `MinProfit` | float | 50 | Profit mínimo para Sell ($) |
+| `MinProfit` | float | 50 | Profit mínimo para Sell ($) — desde 2026-08-22 es solo **fallback** de `gains_config()` |
 | `Toleranciasell` | float | 0.10 | Tolerancia para venta (10%) |
-| `MaxRoi` | float | 0.09 | ROI máximo objetivo (9%) |
+| `MaxRoi` | float | 0.09 | ROI máximo objetivo (9%) — desde 2026-08-22 es solo **fallback** de `gains_config()` |
 | `MinGananciaPrecio` | float | 0.05 | Ganancia mínima precio Buy (5%) |
 | `MinScoreBuy` | float | 0.5 | Score mínimo para Buy |
 | `InicioInversior` | date | - | Fecha inicio de inversión |
 | `ib_gateway_host` | str | - | Host de Interactive Brokers |
 | `ib_gateway_port` | int | - | Puerto de Interactive Brokers |
+
+#### Umbrales de venta por vehículo — `DataHub.gains_config()` (2026-08-22)
+
+`MinProfit`/`MaxRoi` viven en `sesion.userapi` y son **globales**: un solo par de valores para
+Stock, Crypto y BotCrypto. Desde 2026-08-22 son el fallback, no la fuente:
+
+```python
+DataHub.gains_config(vehiculo="Stock", bloque="gains_capture") -> {"min_ganancia": float, "min_roi": float}
+```
+
+- Lee `sesion.parameters[<vehiculo>][<bloque>]` vía `load_vehiculo_params()` (caché con TTL
+  de 60s → un `UPDATE` en BD se refleja sin reiniciar la app).
+- Si el bloque o la clave no existen, cae a `DataHub.MinProfit` / `DataHub.MaxRoi`.
+- Dos bloques con propósito distinto: `gains_capture` (evento explosivo, `Agente_GainsCapture`)
+  y `gains_oportunidades` (barrido rutinario: `csv_OptionSales_write`, `readCSV_sell`,
+  `get_top_sell`). Ver [[design-gains-capture]] → "Umbrales".
+- Caché: `DataHub._params_vehiculo` (class var, dict por vehículo).
 
 ### GRUPO 4: Estructuras Runtime (NO configurables)
 

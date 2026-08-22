@@ -4,7 +4,8 @@
 real (`Class_DashBot.py:_gains_capture_run`), que divergió del diseño original en el
 mecanismo de venta y en el schema de decisión de Claude. Ver [[resultado-revision-opus-preservation-gainscapture]]
 H1/H9/H10 para el detalle de la revisión que detectó las divergencias.
-**Fecha diseño original:** 2026-06-03 — **Fecha ajuste a código real:** 2026-08-21
+**Fecha diseño original:** 2026-06-03 — **Fecha ajuste a código real:** 2026-08-22
+(orden ROI DESC de los lotes, umbrales lote-vs-clase, tope contra posición, semáforo único)
 **Prioridad:** Alta (ítem 53 backlog) — bloqueado en AUTONOMO hasta resolver H5 (gate cruzado con Preservation)
 
 **Ver también:**
@@ -35,7 +36,7 @@ su movimiento, no protegiéndose de él.
 | Espíritu | **Defensivo** — proteger lo ganado | **Especulativo** — capturar upside |
 | Activos | `I` (Infravalorado: dividendo, fundamentals sólidos) | `N` (Sin dividendos: growth/volátil) |
 | Acción | Coloca STOP trailing | Vende parcialmente por escenario (25%/33%/100% de los LOTES en ganancia) |
-| Trigger | ROI >= 10% | ROI >= `min_roi` (default 20%) **y** ganancia >= `min_ganancia` (default $100), evaluado por lote individual |
+| Trigger | ROI >= 10% | `min_roi` filtra **lotes** (calidad individual), `min_ganancia` filtra la **clase** (fricción de la orden) — ver "Umbrales" abajo |
 | Claude decide | Dónde poner el stop | Si hay más recorrido o vender ahora |
 | Nivel jerárquico | N3 — Decisiones | N3 — Decisiones |
 
@@ -56,17 +57,38 @@ Sección propia `"gains_capture"`, independiente de `"preservation"`, dentro de 
 ```json
 {
   "gains_capture": {
-    "modo": "SUPERVISADO",
     "min_roi": 0.20,
-    "min_ganancia": 100.0
+    "min_ganancia": 200.0
   }
 }
 ```
 
 - Si la clave `gains_capture` no está presente en `parameters` → agente deshabilitado sin error (SKIP, `_gains_capture_run` corta antes de evaluar símbolos).
-- `min_roi`/`min_ganancia` sí tienen default en código (0.20 / $100.0) si la clave `gains_capture` existe pero no las trae — pero el bloque en sí es obligatorio.
+- `min_roi`/`min_ganancia` se leen vía `DataHub.gains_config("Stock", "gains_capture")`, con fallback a los globales `MaxRoi`/`MinProfit` de `sesion.userapi` si el bloque existe pero no trae la clave. El bloque en sí sigue siendo obligatorio para que el agente corra.
+- **Ya no hay `modo` propio** (2026-08-22): GainsCapture usa `DataHub.modo_operacion`, el semáforo único del sistema — ver "Modos de operación" abajo. Un `"modo"` dejado en el JSON es ignorado.
 - No hay `niveles` array ni `revisiones_dia`: el intervalo del agente es fijo, `@wait_rate(1800)` (cada 30 min), no configurable desde BD.
-- El JSON de `parameters` se cachea en memoria (`self._params_cache`) al primer uso — cambiar `min_roi`/`min_ganancia` en BD no toma efecto sin reiniciar el proceso. `modo` sí es dinámico (ver más abajo).
+- **Cambio en BD toma efecto sin reiniciar** (2026-08-22): `load_vehiculo_params()` cachea `sesion.parameters` por vehículo con TTL de 60s. Antes quedaba cacheado hasta reiniciar el proceso.
+
+### Umbrales — qué mide cada uno
+
+`min_roi` y `min_ganancia` **no se aplican al mismo objeto** (corregido 2026-08-22, antes
+ambos se evaluaban sobre el mejor lote suelto):
+
+| Umbral | Se aplica a | Por qué |
+|---|---|---|
+| `min_roi` | **cada LOTE** | El ROI es una propiedad intrínseca de madurez del lote. Un lote con 30% de ROI es buen candidato tenga 5 o 500 acciones |
+| `min_ganancia` | **la CLASE** (25%/33%/100%) | La clase es la orden que se ejecuta y la que paga comisión/impuesto/spread. Una ganancia de $27 no cubre la fricción aunque el símbolo entero acumule $200 |
+
+**Bloque hermano `gains_oportunidades`** — mismo formato, distinto propósito: barrido
+rutinario sobre toda la cartera (`csv_OptionSales_write`, `readCSV_sell`, `get_top_sell`),
+con umbrales más bajos (`{"min_roi": 0.09, "min_ganancia": 90}` en Stock y Crypto).
+`gains_capture` es el evento explosivo y puntual; `gains_oportunidades` es la rutina. Ambos
+se leen con el mismo `DataHub.gains_config(vehiculo, bloque)`.
+
+**Pendiente de calibrar:** con `min_ganancia = 200` medido sobre la CLASE, GainsCapture en
+la práctica solo puede proponer ventas "100%" — el techo histórico de una clase 25% en
+Stock es $181 y el de una 33% es $147 (`oportunidadesbuysell`, 187 filas SELL). El valor 200
+se calibró cuando el piso medía el símbolo entero.
 
 **Diseño original (obsoleto, no implementado así):** un array `niveles` de escalones ROI
 (`{"roi": 0.50, "vender_pct": 0.25}`, ...) donde cada nivel se ejecutaba una sola vez y
@@ -103,6 +125,24 @@ un símbolo con 2 lotes y terminar en una venta de 0 acciones cancelada.
 símbolos con 1-2 lotes en ganancia (BABA, UL, ...) solo reciben `["100%"]`; símbolos con
 3 lotes (ABEV, RELX, PHYS) reciben `["33%", "100%"]`; símbolos con ≥4 lotes (DLR, PBR, ...)
 reciben los tres escenarios.
+
+**Orden de los lotes — ROI DESC (fix 2026-08-22).** `DataHub.lotesGain()` entregaba la
+lista en orden cronológico: el contador `Nro.Lote` se reseteaba en cada vuelta, valía
+siempre 1, y el `sorted()` posterior era un no-op. Consecuencia: las clases 25%/33% tomaban
+los lotes **más antiguos**, no los de mejor rendimiento — lo contrario al objetivo de la
+plataforma y a cómo está configurada la venta de lotes en IB. Ahora ordena por `roi` DESC y
+`Nro.Lote` es un ranking 1..n. Mismo orden en `lotesGainLost()`, así la ventana fiscal
+(Análisis) acumula en la misma secuencia con que se arman las clases; su columna `Clase`
+marca hasta qué lote llega cada una, reusando `maximiza_sell_lotes()`.
+
+**Tope contra la posición real (fix 2026-08-22).** Los lotes salen de `booktrading` y pueden
+descuadrar contra el broker (splits, dividendos en acciones, ventas parciales). Dos guardas:
+`lotesGain()` ahora descuenta lo ya vendido (`cantidad - sell`, antes usaba `cantidad` cruda
+y lotes 100% vendidos se contaban enteros — CRNT, MPT, CNH, INTC), y `_gains_capture_run`
+recorta `vender_qty` a `position` con la ganancia prorrateada; si tras el recorte cae bajo
+`min_ganancia`, cancela y deja `CANCELLED` en `symbol_decision_history`. Esto **no** sustituye
+el techo cruzado con Preservation (H5) — acota contra la posición, no contra lo ya
+comprometido por el otro agente.
 
 `Agente_ManagerPreservation` sigue corriendo en paralelo sobre el mismo símbolo si tiene
 ganancia >= 10%, pero como `categoriaActivo='N'`, su STOP es más amplio (ATR × 2.5). Los
@@ -161,20 +201,21 @@ Ejecuta rápido en mercado activo sin regalar precio. No se usan órdenes MKT.
 reconocido, pide confirmación por Telegram (fix 2026-08-21, antes era fail-open por un
 `in ("OBSERVACION","SUPERVISADO")` que dejaba pasar valores no listados).
 
-**Botón real:** `📈 GC:{modo}` en `DashMain.py` (`_toggle_gc_modo()`), no el botón
-verde/naranja de dos estados descrito originalmente. `AUTONOMO` está **deshabilitado en
-la UI** para GainsCapture hasta resolver H1/H5 de la revisión Opus (el switch se puede
-setear en BD pero no desde el botón).
+**Semáforo único (2026-08-22).** El interruptor propio `DataHub.gains_capture_modo` y su
+botón `📈 GC:{modo}` — agregados el 2026-08-21 como respuesta a H9 — **fueron eliminados**.
+GainsCapture vuelve a usar `DataHub.modo_operacion` (`Class_DashBot.py:897`), el mismo
+semáforo que `Agente_ClaudeIA`, con un solo botón en `DashMain.py`
+(`_toggle_modo_operacion`). El motivo del cambio no es el de H9: GainsCapture **siempre
+notifica por Telegram**, nunca ejecuta solo sin dejar rastro, así que silenciarlo con un
+switch propio solo servía para perder oportunidades. Un `"modo"` que haya quedado en el
+bloque `gains_capture` de BD es ignorado.
 
 **Implementación real:**
-- `DataHub.gains_capture_modo` (class var, sin valor fijo hardcodeado como "automatico")
-- Se lee de `sesion.parameters["gains_capture"]["modo"]` en MySQL, **no** de
-  `tmp/gains_capture_config.json` — ese archivo no se usa para el modo.
-- Default si la clave falta: `"SUPERVISADO"` (antes era el string obsoleto `"automatico"`
-  en `Class_customer.py`, corregido 2026-08-21 porque no coincidía con ningún valor que
-  el gate reconociera).
-- El botón en `DashMain.py` sí actualiza `DataHub.gains_capture_modo` en caliente, sin
-  reiniciar — a diferencia de `min_roi`/`min_ganancia` que quedan cacheados.
+- `DataHub.modo_operacion` (class var), leída de `sesion.parameters["agente_ia"]["modo"]`,
+  default `"OBSERVACION"` (`Class_DashBot.py:154`, `DashMain.py:2261`).
+- El botón la actualiza en caliente. `min_roi`/`min_ganancia` también toman efecto en
+  caliente desde 2026-08-22 (TTL 60s de `load_vehiculo_params`).
+- `tmp/gains_capture_config.json` no existe ni se usa.
 
 **Modo `AUTONOMO`** (sin presencia del usuario, actualmente deshabilitado en UI):
 1. Claude valida técnicos → decide `accion: "vender"`
@@ -205,8 +246,10 @@ condición de entrada al flujo es distinta (ver mecanismo real arriba):
 
 ```
 [normal]
-  ↓  algún lote con roi_lote >= min_roi AND ganancia_lote >= min_ganancia
+  ↓  algún lote con roi_lote >= min_roi   (min_roi filtra LOTES)
   ↓  AND escenario elegido por Claude (dentro de escenarios_disponibles) da vender_qty > 0
+  ↓  AND vender_qty acotado a position, con ganancia prorrateada >= min_ganancia
+  ↓      (min_ganancia filtra la CLASE — si no llega, CANCELLED en symbol_decision_history)
   ↓  AND Claude dice accion="vender"
 Colocar LMT SELL parcial  →  [escalon_pendiente]
   (guarda escalon_order_id en gains_capture_state)
@@ -393,5 +436,6 @@ original como referencia histórica de los pasos ejecutados, no como pendiente.
 - [x] ¿`Agente_GainsCapture` corre en el mismo hilo que `Agente_ManagerPreservation` o en uno separado? → Separado: `Agente_GainsCapture` vive en `Class_DashBot.py` (trading/mercado), `Agente_ManagerPreservation` en `Class_AgentManager.py` (infraestructura), cada uno con su propio `@wait_rate`.
 - [ ] Si ambos agentes operan sobre el mismo símbolo simultáneamente (Preservation pone STOP, GainsCapture pone LMT SELL): ¿hay riesgo de conflicto en IB? **Sigue sin resolver — es H5 en [[resultado-revision-opus-preservation-gainscapture]], bloqueado por depender de que `maximiza_sell_lotes()` acote qty contra la posición comprometida, cosa que hoy no hace de forma verificable entre los dos agentes.**
 - [x] Definir intervalo del agente → `@wait_rate(1800)` fijo (30 min), no `revisiones_dia` configurable como decía el diseño original.
-- [ ] Techo de reglas fijas sobre `vender_qty` en Python post-Claude (equivalente al piso que ya tiene Preservation) — pendiente, depende de decidir si se agrega sobre el mecanismo por lotes actual.
+- [~] Techo de reglas fijas sobre `vender_qty` en Python post-Claude (equivalente al piso que ya tiene Preservation) — **parcial 2026-08-22**: existe el tope `vender_qty <= position` con ganancia prorrateada y el piso `min_ganancia` sobre la clase. Falta el techo relativo (ej: "nunca más del X% de la posición en un ciclo") y el cruce con Preservation (H5).
+- [ ] Calibrar `gains_capture.min_ganancia` — con 200 sobre la clase el agente solo puede proponer "100%" (ver "Umbrales" arriba).
 - [ ] El fallback fail-closed cuando Claude falla (esta sesión lo documentó como divergencia del diseño original, que era fail-open) — decidir explícitamente con el usuario si se mantiene o se revierte al comportamiento documentado originalmente.

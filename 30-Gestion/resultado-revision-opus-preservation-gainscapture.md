@@ -29,7 +29,7 @@ diseño-vs-código ya documentada — no requerían grep adicional.
 | H6 | Preservation sobre Crypto nunca envía órdenes reales — calcula todo, arma la trama, loguea `[DRY-RUN]` y nunca manda nada | 🟠 Advertencia | `Class_AgentManager.py:1102` — `is_live = not self._preservation_dry_run and vehiculo == "Stock"` confirmado exacto | ✅ **Hecho 2026-08-21**: decisión explícita — sacar `"Crypto"` del loop (`Agente_ManagerPreservation` ahora itera solo `("Stock",)`, con docstring explicando el motivo). Razón del usuario: Crypto es más volátil y Stock todavía no está maduro — no tiene sentido simular protección en Crypto en silencio. Retomar cuando Stock esté sólido |
 | H7 | `PRECIO_MINIMO = 50.0` hardcodeado excluye justo el perfil `categoriaActivo='N'` (volátil) que GainsCapture ataca — las posiciones más riesgosas quedan con venta agresiva pero sin protección | 🟠 Advertencia | `Class_AgentManager.py:1030-1035` — confirmado exacto, sin diferenciación por vehículo/símbolo | Ligar el piso a `categoriaActivo` o bajar el umbral para Crypto (el BACKLOG ítem #76 ya documenta `Crypto=$0.001` como validación de precio mínimo distinta — revisar por qué `_preservation_run_vehiculo` no la usa) |
 | H8 | Fallback silencioso `sma_base = last` cuando falla SMA20 — en tendencia alcista da un stop más cercano al precio (fail-open), y el ratchet lo deja fijado permanentemente aunque la SMA vuelva | 🟠 Advertencia | `Class_AgentManager.py:1042-1047` — confirmado exacto | Cambiar a fail-closed: si no hay SMA y ya existe stop, no tocar nada y alertar; si no hay SMA y no hay stop, no operar ese ciclo |
-| H9 | GainsCapture no tiene interruptor propio pese a aparentarlo — `gains_capture_modo="automatico"` está declarado pero nadie lo lee; el código usa `DataHub.modo_operacion`, compartido con `Agente_ClaudeIA` (Capa 4) | 🟠 Advertencia | `Class_customer.py:1153` (única aparición del atributo en todo el repo, confirmado por grep) vs `Class_DashBot.py:1032` (`DataHub.modo_operacion`) | ✅ **Hecho 2026-08-21**: `DataHub.gains_capture_modo` (global, mismo patrón que `modo_operacion`), leído en `_gains_capture_run` desde `parameters["gains_capture"]["modo"]` (default `SUPERVISADO`), botón propio `📈 GC:{modo}` en `DashMain.py` con `_toggle_gc_modo()` — AUTONOMO deshabilitado en UI para GC hasta resolver H1/H5. `agente_ia.modo` (Capa 4) queda intacto y ya no arrastra a GainsCapture |
+| H9 | GainsCapture no tiene interruptor propio pese a aparentarlo — `gains_capture_modo="automatico"` está declarado pero nadie lo lee; el código usa `DataHub.modo_operacion`, compartido con `Agente_ClaudeIA` (Capa 4) | 🟠 Advertencia | `Class_customer.py:1153` (única aparición del atributo en todo el repo, confirmado por grep) vs `Class_DashBot.py:1032` (`DataHub.modo_operacion`) | ✅ **Hecho 2026-08-21**: `DataHub.gains_capture_modo` (global, mismo patrón que `modo_operacion`), leído en `_gains_capture_run` desde `parameters["gains_capture"]["modo"]` (default `SUPERVISADO`), botón propio `📈 GC:{modo}` en `DashMain.py` con `_toggle_gc_modo()` — AUTONOMO deshabilitado en UI para GC hasta resolver H1/H5. `agente_ia.modo` (Capa 4) queda intacto y ya no arrastra a GainsCapture. **↩ REVERTIDO 2026-08-22 por decisión del usuario**: `gains_capture_modo` y el botón `📈 GC` se eliminaron, GainsCapture vuelve a `DataHub.modo_operacion` (semáforo único). Motivo: GainsCapture **siempre notifica por Telegram** y nunca ejecuta en silencio, así que un switch propio no agregaba control — solo permitía silenciarlo y perder oportunidades. El hallazgo H9 era correcto como diagnóstico (el atributo declarado no se leía), pero la solución elegida fue unificar, no separar |
 | H10 | Divergencias diseño/código: timeout 2h en código vs 30min documentado; `gains_capture_modo`/`gains_capture_config.json` documentados pero ausentes/sin uso; rama Crypto de Preservation documentada y muerta (H6) | 🟡 Cosmético (síntoma) | `Class_DashBot.py:959` (`elapsed > 7200`) vs `design-gains-capture.md` — confirmado en sesión previa | Actualizar `design-preservation.md` y `design-gains-capture.md` para que reflejen el código real, no al revés — la decisión de activar PROD se está leyendo desde el diseño, y el diseño miente en al menos 3 puntos |
 
 ## Orden de trabajo (según Opus, adoptado)
@@ -46,6 +46,20 @@ diseño-vs-código ya documentada — no requerían grep adicional.
 pendiente explícitamente — el usuario decidió esperar a tener datos operativos reales antes de
 reescribir `maximiza_sell_lotes()`. Punto 3 (techo sobre `vender_qty`) y punto 6 (H5, gate
 cruzado) dependen de H1 y siguen bloqueados por transitividad.
+
+**Actualización 2026-08-22:**
+- **Punto 3 — parcialmente resuelto.** `_gains_capture_run` recorta `vender_qty` a la
+  `position` real del broker con la ganancia prorrateada, y `lotesGain()` dejó de contar como
+  disponible lo ya vendido (`cantidad - sell`). Falta el techo relativo y el cruce con
+  Preservation.
+- **Punto 7 (H9) — revertido**, ver la fila H9: se volvió al semáforo único por decisión
+  explícita del usuario.
+- **Hallazgo nuevo, fuera de la revisión Opus:** `lotesGain()` entregaba los lotes en orden
+  cronológico (el `sorted` era un no-op porque `Nro.Lote` valía siempre 1), así que las clases
+  25%/33% tomaban los lotes **más antiguos** en vez de los de mejor ROI. Corregido a ROI DESC.
+  Esto agrava retroactivamente H1: durante todo el período previo, "25%" no solo repartía por
+  conteo de lotes sino que además elegía los peores candidatos.
+- **H1 sigue pendiente y sigue siendo el bloqueante de PROD.**
 
 **No activar `AUTONOMO`/producción para GainsCapture hasta resolver H1 (y por lo tanto H5).**
 Con H2 corregido, ahora sí se puede correr una semana en OBSERVACION/SUPERVISADO con el log
