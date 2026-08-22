@@ -87,6 +87,40 @@ Trama Binance con `stepSize`/`tickSize`. El resto del riel ya existe. Recién ac
 ### Orden sugerido
 `0 → 1 → 2` (las tres sin riesgo de orden real) → validar unos días en DRY-RUN → `3` → `4`.
 
+## 3.bis Bug de comisiones Binance — corregido 2026-08-22
+
+Detectado al revisar una venta real de BNBUSDT (0.105 @ 693.65) que debía dar ~+$13 y quedó
+registrada como **−$36,87** en `booktrading`.
+
+**Causa:** el código asumía que Binance siempre cobra la comisión en el **activo base** y hacía
+`commission * price`. Eso es correcto en las compras (comisión en POL/VET/ICP), pero en las
+**ventas** Binance cobra en el activo *quote* (USDT, que ya es USD) → la comisión quedaba
+inflada exactamente `price` veces. Con BNB ($693) 0.0728 USDT se guardó como **50.5208**.
+
+El error es proporcional al precio de la moneda, por eso pasó desapercibido años: en VTHO
+($0.009) la comisión quedaba 1.000× *menor*; en BTC ($110k) una venta habría registrado una
+comisión ficticia de más de un millón de dólares.
+
+**Fix:** helper único `comision_a_usd(symbol, commission, commission_asset, price, price_bnb)`
+en `Class_ApiBinnace.py`, que resuelve por `commissionAsset`: quote USD → tal cual; base →
+`× price`; BNB (descuento de fees) → `× precio_BNB`. Reemplaza la lógica que estaba duplicada
+en 4 lugares (`Class_ApiBinnace.sync_trades`, `Class_BotCryptoUI._get_insert_fallidos`,
+`Class_BotCryptoUI._almacenar_trades_booktrading`, `AppTest/run_binance_import.py`).
+Las compras no cambian de valor.
+
+**Corregido en BD:** solo la fila de la venta del 2026-08-22 (`booktrading.id=5113`):
+`tarifacomision` 50.5208 → 0.0728332, `gprealizadas` −36.8738 → **+13.5742**,
+`mtmgp` −351.179 → **+129.278**. El `hash_id` no incluye la comisión, así que un `sync_trades`
+posterior no la duplica.
+
+**Pendiente (no ejecutado):** el histórico sigue con el error — Crypto 54 ventas
+($1.792,91 → ≈$1.833,01) y BotCrypto 439 ventas (−$91,15 → ≈−$145,23). No se puede corregir con
+SQL a ciegas: `booktrading` no guarda `commissionAsset` y las comisiones pagadas en BNB se
+corregirían mal. Requiere releer `myTrades` de Binance.
+
+> **Impacto en la Etapa 1:** los umbrales `min_ganancia` se calibran contra ganancias que hasta
+> hoy venían mal calculadas en las ventas. Recalibrar después de tener el histórico saneado.
+
 ## 4. Próximo paso al retomar
 
 El usuario quiere **revisar primero una venta real que ejecutó**, y con esos datos volver acá.
