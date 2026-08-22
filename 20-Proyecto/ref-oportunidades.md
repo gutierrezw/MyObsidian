@@ -68,6 +68,32 @@ clases de $27 y $46 que igual llegaban al Telegram.
 - ⚠️ El `factor` de divisa no se aplica al comparar contra el piso: en BBVA.ARS / SANT.ARS el
   profit está en pesos y pasa cualquier umbral en dólares. Pendiente.
 
+### Gate de calendario — no se notifica un vehículo que hoy no opera (2026-08-22)
+
+`schedule_oportunidades` corre **cada 15s por vehículo, sin gate de sesión**: regenera los CSV
+con precios de BD/yfinance aunque IB esté caído (el fallback `schedule_ib_offline_sync` sigue
+refrescando `last`). En **modo etiquetado** eso llega directo a Telegram: se saltan el control
+de frecuencia (`Agente_message_Manager_Buy`) y el filtro del menú. Resultado: oportunidades
+Stock un sábado, sobre precios congelados del viernes.
+
+El gate quedó en `opportunity_handler_message_buy` / `opportunity_handler_message_sell`:
+
+```python
+if not DataHub.mercado_abierto(row.get("vehiculo", "Stock")):
+    return
+```
+
+- **Por fila, no por agente** — los CSV mezclan vehículos (columna `vehiculo`). Un gate en
+  `Agente_ManagerBuy` habría silenciado también Crypto, que sí opera sábado.
+- **La oportunidad se inserta igual en BD**; lo único que se corta es la notificación
+  (Telegram + chat interno). No se pierde dato para entrenamiento.
+- Alcanza también al TOP10: al no marcarse en `buy_enviados`/`sell_enviados`, la fila no entra
+  a `get_top_buy`/`get_top_sell`.
+- Helper: `DataHub.mercado_abierto(vehiculo)` → ver [[ref-datahub]].
+- ⚠️ El `hash_id` incluye `Fecha = datetime.now().date()`, así que cada día nuevo reenvía la
+  misma lista. Con el gate el fin de semana queda callado, pero el reenvío diario en días
+  hábiles sigue vigente. Pendiente.
+
 ---
 
 ## 2. Regla BUY vs DIVIDENDS
@@ -184,6 +210,7 @@ BD oportunidades (tipo='buy' / tipo='sell')
 ## Historial
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| 2.2 | 2026-08-22 | Gate de calendario en los message handlers — no se notifica vehículo cerrado |
 | 2.1 | 2026-08-22 | Umbral SELL por CLASE y por vehículo (`gains_oportunidades`), fail-open cerrado en `readCSV_sell` |
 | 2.0 | 2026-06-29 | Unificación buy+sell, score híbrido TOP10, elimina duplicados |
 | 1.0 | 2026-04 | Documentos separados ref-regla-buy, ref-modelo-buy, ref-modelo-sell |

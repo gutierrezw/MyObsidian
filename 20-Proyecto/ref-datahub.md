@@ -107,6 +107,23 @@ DataHub.gains_config(vehiculo="Stock", bloque="gains_capture") -> {"min_ganancia
   `get_top_sell`). Ver [[design-gains-capture]] → "Umbrales".
 - Caché: `DataHub._params_vehiculo` (class var, dict por vehículo).
 
+#### Calendario de mercado — `DataHub.mercado_abierto()` (2026-08-22)
+
+```python
+DataHub.mercado_abierto(vehiculo="Stock") -> bool
+```
+
+- `Crypto` / `BotCrypto` → siempre `True` (24x7). El resto (Stock, BBVA.ARS, SANT.ARS) →
+  `datetime.now().weekday() < 5`.
+- Lista de excepciones en la class var `DataHub.MERCADO_24X7`.
+- **No usa `manager_sesion`** a propósito: ese flag mide *sesión de broker viva*, no *mercado
+  abierto*. Si IB se cae un miércoles el fallback yfinance sigue dando precio real y la
+  oportunidad es válida — gatear por sesión silenciaría de más. Además `manager_sesion` solo
+  tiene claves `Stock` y `Crypto`, así que `.get("BotCrypto")` daría `None`.
+- ⚠️ Feriados de mercado **no** contemplados — solo fin de semana. Pendiente.
+- Consumidor: gate de notificación en `opportunity_handler_message_buy/sell`
+  (ver [[ref-oportunidades]] → "Gate de calendario").
+
 ### GRUPO 4: Estructuras Runtime (NO configurables)
 
 ```python
