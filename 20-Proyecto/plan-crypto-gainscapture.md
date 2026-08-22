@@ -62,9 +62,22 @@ Independiente del resto y verificable en el panel/Telegram el mismo día. Propue
 
 | Vehículo | Bloque | min_roi | min_ganancia |
 |---|---|---|---|
-| Crypto | `gains_oportunidades` | 0.09 | 40 (hoy 90) |
+| Crypto | `gains_oportunidades` | 0.09 | **50 — APLICADO 2026-08-22** (antes 90) |
 | Crypto | `gains_capture` | 0.20 | ~60 (hoy 200) |
-| BotCrypto | ambos | — | **agregar los bloques** (hoy ausentes) |
+| BotCrypto | ambos | — | **agregar los bloques** (hoy ausentes → caen a `MinProfit` global) |
+
+**Aplicado 2026-08-22:** `Crypto.gains_oportunidades.min_ganancia` 90 → **50** en `sesion.parameters`.
+No requiere reinicio: `load_vehiculo_params` cachea con `PARAMS_TTL = 60` segundos. Con ese piso,
+la clase 33% de BTCUSDT ($54) pasa a entrar; la de 25% ($41) sigue afuera.
+
+**Umbral del modelo — sin cambios por decisión del usuario (2026-08-22).** `modelo_sellv01`
+queda en `umbral_sell = 0.65`. Detectado ese día que ese umbral, y no `min_ganancia`, era lo que
+dejaba a BTCUSDT fuera de Telegram: la clase 100% llegó al CSV con $100,22 / ROI 15,2% pero el
+modelo no le dio confianza suficiente (el 2026-08-21 la misma clase había sacado 0.6960, apenas
+por encima del corte). **El descarte es mudo** — no hay log ni fila, solo se nota por ausencia.
+Quedan sin hacer, para cuando moleste: (A) loguear los descartes con su confianza, (B) bajar
+`umbral_sell`, (C) reactivar la rama de observación 0.35–0.65 comentada en
+`Class_DashBot.py:2980`.
 
 ### Etapa 2 — sanear la aritmética (`float`, no `int`)
 Quitar los `int()` de `vender_qty` y `_pos`; redondeo de precio dependiente del
