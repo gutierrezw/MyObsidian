@@ -144,6 +144,14 @@ recorta `vender_qty` a `position` con la ganancia prorrateada; si tras el recort
 el techo cruzado con Preservation (H5) — acota contra la posición, no contra lo ya
 comprometido por el otro agente.
 
+**Visible en el panel de TradingView (2026-08-22).** `_abrir_tradingview()` arma el bloque
+"Venta por clase" llamando a `maximiza_sell_lotes()` con lo que ya está cacheado en
+`self.info[symbol]["sell"]` (`list_gain`, `position`, `costobase`) — sin query extra a
+`booktrading`, y con el `list_gain` ya capeado por `disponible`. Muestra por clase: lotes,
+cantidad, profit, ROI y la posición resultante (`pos avgCost` / `pos position`), que hasta
+ahora se calculaba y no se veía en ninguna pantalla. Es una **foto** del momento en que se
+abrió la ventana: el panel refresca `last` cada poll pero las clases no se recalculan.
+
 `Agente_ManagerPreservation` sigue corriendo en paralelo sobre el mismo símbolo si tiene
 ganancia >= 10%, pero como `categoriaActivo='N'`, su STOP es más amplio (ATR × 2.5). Los
 dos agentes conviven — **sin gate cruzado** (ver H5 en [[resultado-revision-opus-preservation-gainscapture]],
