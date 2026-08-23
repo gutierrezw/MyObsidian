@@ -235,15 +235,37 @@ escribe en el dict `pendiente` (escribe `escenario`). El `KeyError` saltaba **de
 `niveles_ejecutados` acumula el escenario. Afecta por igual a Stock — es la ruta de aprobación
 manual, la única que corre mientras `modo_operacion != AUTONOMO`.
 
+### Auto-rescate de Earn — decidido 2026-08-23
+
+GainsCapture es el primer agente que coloca una orden Crypto en vivo (Preservation tiene la misma
+exposición pero Crypto está fuera de su tupla por H6), así que acá se resolvió el hueco: **el riel
+de órdenes rescata solo lo que falte de Earn Flexible para completar la venta.**
+
+Va en `place_OrderCrypto()` (rama SELL, simétrica a la de BUY que ya chequeaba USDT), no en el
+agente: así lo heredan GainsCapture, Preservation Crypto y Telegram sin repetir lógica, y el agente
+sigue siendo coordinador. Reusa `crypto_wallet_free()` + `crypto_earn_rescate()`, los mismos que usa
+la UI; lo que no se pudo reusar es `valida_wallet_spot()`, que es una función anidada en la ventana
+Tk. Método nuevo: `crypto_spot_asegura(symbol, qty)`.
+
+Dos diferencias deliberadas con el circuito UI:
+
+| | UI (`valida_wallet_spot`) | Riel de órdenes (`crypto_spot_asegura`) |
+|---|---|---|
+| Si tras rescatar sigue faltando | popup y **manda la orden igual** | recorta la qty a lo disponible, avisa por Telegram; si no hay nada, no manda |
+| Cómo reporta el fallo | `messagebox` modal | log + `DataHub.add_alert` — un hilo de agente no abre ventanas |
+
+Por eso `crypto_earn_rescate()` pasó a devolver `True`/`False` en vez de abrir un `messagebox`. La
+UI no pierde el aviso: `valida_wallet_spot()` muestra el suyo al volver a medir.
+
+**Rechazo del broker — corregido de paso.** Un rechazo de Binance no levanta excepción: vuelve como
+`{"values": {}, "status": "No Submit"}`. El código marcaba igual `escalon_pendiente`, estado que **no
+expira**, así que el símbolo quedaba muerto esperando un fill inexistente hasta editar
+`tmp/gains_capture_state.json` a mano. Ahora sin `order_id` no hay escalón: se loguea, se avisa y se
+reintenta el próximo ciclo. Aplica también a Stock.
+
 ### Pendiente de validar en la primera orden real
-- **Disponibilidad en spot.** Si la cantidad a vender está en Binance Earn, la orden se rechaza
-  por saldo insuficiente. El camino manual (`MyOrders.format_orden`) hace `crypto_earn_rescate()`
-  antes de mandar; el agente **no** — no tiene la instancia del cliente, solo `DataHub`. Preservation
-  tiene la misma exposición pero nunca la ejerció (Crypto está fuera de su tupla por H6), así que
-  GainsCapture es el primer agente que coloca una orden Crypto en vivo. Se decidió no auto-rescatar:
-  mover fondos de Earn sin que el usuario lo pida es un efecto lateral, y el fallo queda logueado.
-- El primer `/ok_SYMBOL` de Crypto confirma de una sola vez la trama, el `format_precio` y el fix
-  del `KeyError`.
+El primer `/ok_SYMBOL` de Crypto confirma de una sola vez la trama, el `format_precio`, el rescate de
+Earn y el fix del `KeyError`.
 
 ### Orden sugerido
 `0 → 1 → 2` (las tres sin riesgo de orden real) → `3` → `4`. Las cinco etapas quedaron cerradas el

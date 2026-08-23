@@ -163,10 +163,33 @@ después no puede ejecutarse sería peor que no proponer.
 decimales del mismo `tickSize` — antes iban con `:.2f` y un par barato se leía `$0.00` en la
 propuesta de Telegram.
 
-El agente **no** rescata de Binance Earn antes de vender: si la cantidad está parkeada ahí, la orden
-se rechaza por saldo y queda en el log. El camino manual sí rescata (`MyOrders.format_orden`), pero
-mover fondos de Earn sin pedido explícito del usuario es un efecto lateral que un agente no debe
-tomar por su cuenta.
+**Saldo en spot y rescate de Earn (2026-08-23).** La cantidad a vender sale de los lotes de
+`booktrading` y el tope duro sale de `position`: los dos miden posición contable, ninguno mide el
+saldo *free* de spot. Si la cripto está en Earn Flexible (`LDADA`, `LDBTC`…) la orden se rechaza por
+saldo aunque la posición exista.
+
+La UI ya resolvía esto en `valida_wallet_spot()` (`pre_orden`, antes de ceder el control), pero es
+una función anidada en la ventana Tk y atada a `messagebox` — inalcanzable desde un agente. El mismo
+circuito ahora vive en el riel de órdenes, en la rama SELL de `place_OrderCrypto()`, simétrica a la
+rama BUY que ya chequeaba USDT. Lo heredan GainsCapture, Preservation Crypto y Telegram de una vez:
+
+1. `crypto_spot_asegura(symbol, qty)` — mide spot, y si falta redime de Earn Flexible el faltante
+   (`productId` = `{ASSET}001`, p.ej. `ADA001`) y vuelve a medir.
+2. Si aun así falta, la orden **se recorta** a lo disponible (cuantizado por `stepSize`) con aviso
+   por Telegram. Si no queda nada, no se manda. La UI, en cambio, avisa con un popup y manda la
+   orden igual — está bien ahí porque hay alguien leyendo el cartel.
+
+`crypto_earn_rescate()` pasó a devolver `True`/`False` y a loguear en vez de abrir un `messagebox`:
+ahora corre en hilo de agente, donde una ventana modal no corresponde. La UI no pierde el aviso,
+porque `valida_wallet_spot()` muestra el suyo al volver a medir.
+
+**Rechazo del broker sin excepción (2026-08-23).** `place_OrderCrypto` devuelve `{}, {}, {}` ante un
+rechazo, que vuelve como `{"values": {}, "status": "No Submit"}` — sin excepción. El código marcaba
+igual `estado="escalon_pendiente"`, que **no expira** (a diferencia de `pendiente_autorizacion`, que
+se vence a los 30 min), así que el símbolo quedaba parkeado para siempre esperando un fill
+inexistente. Ahora, si no hay `order_id`, se loguea, se avisa por Telegram y se deja el estado
+intacto para reintentar. En el handler `/ok_SYMBOL` la propuesta sigue pendiente y se puede
+reintentar. Aplica a los dos vehículos.
 
 **Granularidad de qty y precio por vehículo (2026-08-23).** `vender_qty`, `_pos` y `lmt_price`
 dejaron de usar `int()` y `round(…, 2)` en duro: pasan por `DataHub.quantiza_qty()` y
