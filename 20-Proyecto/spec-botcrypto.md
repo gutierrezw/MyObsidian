@@ -12,6 +12,29 @@ Bot de trading **Spot** para Binance que evalúa activos individuales y toma dec
 - **Mercado:** Binance Spot · Pares crypto (BTCUSDT, ETHUSDT, etc.)
 - **Operativa:** Market / Limit · Solo LONG
 
+### Fuera de alcance — GainsCapture y Preservation (decisión 2026-08-23)
+
+**BotCrypto es un bot de trading puro y no participa de los agentes de cartera.** No entra en
+[[design-gains-capture]] ni en [[design-preservation]], y no es un pendiente: es la frontera del
+diseño. El bot abre y cierra sus propias posiciones con su propia lógica de entrada/salida
+(§ 4.3) y su propia gestión de riesgo (§ 6). Superponerle un agente que decida ventas por ROI o
+que mueva stops sería **dos dueños sobre la misma posición**.
+
+Consecuencias verificadas en BD, que confirman que hoy ya es así:
+
+| Evidencia | Estado |
+|---|---|
+| Filas en `inversion` con `tipoinv = 'BotCrypto'` | **0** — GainsCapture y Preservation iteran `select_inversion()`, así que nunca lo ven |
+| Filas en `oportunidadesbuysell` con `vehiculo = 'BotCrypto'` | **0** — no pasa por el pipeline de oportunidades |
+| Bloques `gains_capture` / `gains_oportunidades` en `sesion.parameters` | **ausentes** — y así deben quedar |
+
+Por eso **no hay que agregarle esos bloques de parámetros**: nadie los leería. Si en algún
+momento aparece un `gains_config("BotCrypto", …)` en el código, es un error de diseño, no una
+funcionalidad faltante.
+
+`B0000002` sí participa de todo lo que es contabilidad y auditoría — `booktrading`, comisiones,
+`diaria_performance`. La exclusión es solo de los agentes que **deciden operaciones**.
+
 ---
 
 ## 2. Principios de Diseño

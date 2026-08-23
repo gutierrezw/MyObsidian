@@ -96,7 +96,15 @@ Independiente del resto y verificable en el panel/Telegram el mismo día. Propue
 |---|---|---|---|
 | Crypto | `gains_oportunidades` | 0.09 | **50 — APLICADO 2026-08-22** (antes 90) |
 | Crypto | `gains_capture` | 0.20 | ~60 (hoy 200) |
-| BotCrypto | ambos | — | **agregar los bloques** (hoy ausentes → caen a `MinProfit` global) |
+| BotCrypto | ambos | — | ~~agregar los bloques~~ → **DESCARTADO 2026-08-23**, ver abajo |
+
+**BotCrypto sale del plan (2026-08-23).** Es un bot de trading puro: no entra en GainsCapture ni
+en Preservation, por diseño y no por pendiente — el bot ya gestiona sus propias salidas y riesgo,
+y superponerle un agente sería dos dueños sobre la misma posición. Registrado en
+[[spec-botcrypto]] § 1. La afirmación original de esta tabla ("caen a `MinProfit` global") era
+cierta en teoría pero irrelevante: `oportunidadesbuysell` no tiene **ninguna** fila de BotCrypto
+y `inversion` no tiene **ninguna** con `tipoinv='BotCrypto'`, así que esos umbrales nunca se
+consultan. Agregarle los bloques habría sido configuración muerta.
 
 **Aplicado 2026-08-22:** `Crypto.gains_oportunidades.min_ganancia` 90 → **50** en `sesion.parameters`.
 No requiere reinicio: `load_vehiculo_params` cachea con `PARAMS_TTL = 60` segundos. Con ese piso,
@@ -202,7 +210,24 @@ El usuario quiere **revisar primero una venta real que ejecutó**, y con esos da
 Al retomar, la pregunta abierta es: ¿arrancamos por la decisión de la Etapa 0, o calibramos la
 Etapa 1 con las clases reales de las 12 posiciones antes de decidir?
 
-**Actualización 2026-08-22:** la Etapa 0 quedó **cerrada** (ver arriba). El siguiente paso es la
-Etapa 1 — `Crypto.gains_capture.min_ganancia` 200 → ~60 y agregar los bloques ausentes de
-BotCrypto — y sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`,
-que son la razón por la que GainsCapture no deja rastro en `symbol_decision_history`.
+**Actualización 2026-08-22:** la Etapa 0 quedó **cerrada** (ver arriba).
+
+**Actualización 2026-08-23 — la Etapa 1 queda casi vacía.** Al medir qué efecto real tenían sus
+dos ítems restantes:
+
+1. **BotCrypto — descartado**, no pertenece a este plan (ver arriba).
+2. **`Crypto.gains_capture` — es preparatorio, no operativo.** `_gains_capture_run` pide el bloque
+   hardcodeado como `gains_config("Stock", "gains_capture")` (`Class_DashBot.py:894`), así que el
+   bloque de Crypto **no se lee hoy**; recién tendrá efecto tras la Etapa 3. Solo
+   `gains_oportunidades` resuelve por vehículo dinámico, y ese ya se bajó a 50.
+
+**Además, el plan tenía mal el diagnóstico del umbral.** Proponía bajar `min_ganancia` 200 → ~60
+dejando `min_roi` en 0.20, pero el gate exige **ambas** condiciones: la mejor clase de BTCUSDT dio
+ROI **15,2%**, así que queda afuera por ROI, no por monto. Bajar solo `min_ganancia` no habría
+cambiado una sola decisión. Si se aplica, van los dos: `min_roi` 0.20 → 0.12 y `min_ganancia`
+200 → 60. **Pendiente de autorización del usuario.**
+
+El siguiente paso con efecto real es la **Etapa 2** (aritmética `float`), que además arregla el
+`round(…, 2)` que hoy rompe la rama Crypto de Preservation. Sigue en pie instrumentar los tres
+`continue` silenciosos de `_gains_capture_run`, que son la razón por la que GainsCapture no deja
+rastro en `symbol_decision_history`.
