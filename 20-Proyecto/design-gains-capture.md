@@ -296,7 +296,17 @@ bloque `gains_capture` de BD es ignorado.
    ```
    Botones inline, homologados con la propuesta del Agente IA (2026-08-23). Antes eran los
    comandos de texto `/ok_PBR | /no_PBR`, que **siguen funcionando**: sirven para mensajes
-   viejos y como salida si el callback falla. `callback_data` = `gc_ok|SYMBOL` / `gc_no|SYMBOL`.
+   viejos y como salida si el callback falla.
+   `callback_data` = `gc_ok|SYMBOL|pendiente_id` / `gc_no|SYMBOL|pendiente_id`.
+
+   **Por qué el `pendiente_id`:** por símbolo hay una sola propuesta viva a la vez (mientras el
+   estado sea `pendiente_autorizacion` el agente saltea ese símbolo), pero el chat de Telegram
+   acumula las viejas. Un mensaje de las 10:24 con clase 25% y otro de las 11:24 con clase 100%
+   muestran botones idénticos: tocar el viejo ejecutaba **la propuesta vigente**, o sea otra clase
+   y otro precio que los que el usuario está leyendo. El id (epoch del momento de la propuesta) se
+   guarda en el estado y viaja en el `callback_data`; si no coincide, se rechaza con
+   *"esa propuesta ya venció"*. Los comandos de texto no lo mandan y siguen actuando sobre la
+   vigente.
 3. `gains_capture_state[symbol]` → `estado: "pendiente_autorizacion"`, guarda la propuesta completa (`escenario`, `qty`, `lmt_price`, `conid`, `account`, `det`) en `pendiente`.
 4. Botón **Ejecutar** o `/ok_<SYMBOL>` → `_gains_capture_aprobar(symbol)` → coloca la orden → flujo normal de fill
 5. Botón **Diferir** o `/no_<SYMBOL>` → `_gains_capture_rechazar(symbol)` → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
