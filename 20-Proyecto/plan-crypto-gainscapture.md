@@ -186,10 +186,12 @@ dónde salió.
 la escribe cada instancia dueña de sus posiciones (`Class_customer.py:3472`). Antes los símbolos de
 otros vehículos entraban y morían en el gate de categoría; ahora ni entran.
 
-**Crypto corta antes de proponer — y se ve en el log.** `gains_capture_build_trama_sell()` todavía
-no tiene rama Binance (Etapa 4). Dos guardas:
+**Crypto corta antes de proponer — y se ve en el log.** *(Vigente hasta la Etapa 4, cerrada el
+mismo día: desde entonces la tupla incluye `"Crypto"` y el corte ya no aplica a este vehículo. Las
+dos guardas siguen en pie para cualquier vehículo sin rama.)* `gains_capture_build_trama_sell()`
+todavía no tenía rama Binance. Dos guardas:
 
-1. `DataHub.gains_capture_vehiculos_trama = ("Stock",)` — declarativo, al lado del builder. Si el
+1. `DataHub.gains_capture_vehiculos_trama` — declarativo, al lado del builder. Si el
    vehículo no está, el candidato se loguea como `candidato en observacion` y se corta **antes** de
    la evaluación Claude: no tiene sentido pagar una decisión que no se puede ejecutar, y menos cada
    30 minutos sobre el mismo símbolo (el estado no avanza, así que reintentaría en cada ciclo).
@@ -204,12 +206,49 @@ no tiene rama Binance (Etapa 4). Dos guardas:
 > `DataHub.modo_operacion`, único del sistema— y lo que falta (la trama) está **declarado y
 > logueado**, no simulando en silencio.
 
-### Etapa 4 — rama Crypto en `gains_capture_build_trama_sell`
-Trama Binance con `stepSize`/`tickSize`. El resto del riel ya existe. Recién acá se emiten
-órdenes reales.
+### Etapa 4 — rama Crypto en `gains_capture_build_trama_sell` — **CERRADA 2026-08-23**
+
+Trama Binance LIMIT SELL, misma forma que la rama Crypto de `preservation_build_trama()`:
+
+```python
+"pedido": {"symbol", "side": "SELL", "type": "LIMIT",
+           "price": quantiza_precio("Crypto", symbol, lmt_price),
+           "quantity": quantiza_qty("Crypto", symbol, qty),
+           "timeInForce": "GTC"}
+```
+
+Sin `conid` (es de IB) y sin `intent` — la rama Crypto de Preservation tampoco lo manda.
+`DataHub.gains_capture_vehiculos_trama = ("Stock", "Crypto")`. **Desde acá GainsCapture emite
+órdenes reales en Binance.**
+
+**`format_precio(vehiculo, symbol, precio)` — nuevo, junto a `quantiza_precio`.** Los mensajes de
+Telegram, los logs y el audit trail formateaban con `${lmt_price:.2f}`: ADA a 0,4227 se leía
+`$0.42` y un par más barato habría mostrado `$0.00` en la propuesta que el usuario tiene que
+aprobar. Toma los decimales del mismo `tickSize` que usa `quantiza_precio`, así el texto y el
+precio enviado no pueden discrepar. También se sacó la palabra "acc" de esos mensajes.
+
+**Bug corregido de paso — `/ok_SYMBOL` rompía después de enviar la orden.**
+`handle_gains_capture_ok` leía `pendiente["nivel_roi"]`, clave que `_gains_capture_run` nunca
+escribe en el dict `pendiente` (escribe `escenario`). El `KeyError` saltaba **después** de
+`preservation_send_order`: la orden quedaba puesta en el broker pero sin `order_trader`, sin
+`preservation_order`, sin actualizar el estado y sin respuesta al usuario. Ahora
+`niveles_ejecutados` acumula el escenario. Afecta por igual a Stock — es la ruta de aprobación
+manual, la única que corre mientras `modo_operacion != AUTONOMO`.
+
+### Pendiente de validar en la primera orden real
+- **Disponibilidad en spot.** Si la cantidad a vender está en Binance Earn, la orden se rechaza
+  por saldo insuficiente. El camino manual (`MyOrders.format_orden`) hace `crypto_earn_rescate()`
+  antes de mandar; el agente **no** — no tiene la instancia del cliente, solo `DataHub`. Preservation
+  tiene la misma exposición pero nunca la ejerció (Crypto está fuera de su tupla por H6), así que
+  GainsCapture es el primer agente que coloca una orden Crypto en vivo. Se decidió no auto-rescatar:
+  mover fondos de Earn sin que el usuario lo pida es un efecto lateral, y el fallo queda logueado.
+- El primer `/ok_SYMBOL` de Crypto confirma de una sola vez la trama, el `format_precio` y el fix
+  del `KeyError`.
 
 ### Orden sugerido
-`0 → 1 → 2` (las tres sin riesgo de orden real) → validar unos días en DRY-RUN → `3` → `4`.
+`0 → 1 → 2` (las tres sin riesgo de orden real) → `3` → `4`. Las cinco etapas quedaron cerradas el
+2026-08-23; la validación en seco de los umbrales se hace ahora sobre las propuestas por Telegram,
+que igual requieren aprobación manual.
 
 ## 3.bis Bug de comisiones Binance — corregido 2026-08-22
 
@@ -300,10 +339,11 @@ cambiado una sola decisión. Si se aplica, van los dos: `min_roi` 0.20 → 0.12 
 
 Las Etapas **2 y 3** quedaron cerradas el 2026-08-23. Con eso Crypto ya recorre el pipeline
 completo —config propia, categoría desde `inversion`, lotes, escenarios, granularidad
-`stepSize`/`tickSize`— y se detiene en el único punto que falta: la trama Binance. Lo que queda es
-la **Etapa 4**, la primera con órdenes reales.
+`stepSize`/`tickSize`— y se detiene en el único punto que falta: la trama Binance. Con la **Etapa 4** —cerrada
+el mismo día— se agregó la trama Binance y Crypto pasó a emitir órdenes reales.
 
-Antes de habilitarla conviene mirar unos días los logs `candidato en observacion` para Crypto: son
-la validación en seco de que los umbrales `min_roi 0.10 / min_ganancia 40` producen candidatos
-razonables. Sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`, que
+La red de contención es el modo de operación: mientras `DataHub.modo_operacion != "AUTONOMO"` toda
+propuesta pasa por `/ok_SYMBOL` en Telegram, así que la validación de los umbrales
+`min_roi 0.10 / min_ganancia 40` se hace mirando propuestas concretas y no órdenes ya puestas.
+Sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`, que
 son la razón por la que GainsCapture no deja rastro en `symbol_decision_history`.
