@@ -132,11 +132,34 @@ Quedan sin hacer, para cuando moleste: (A) loguear los descartes con su confianz
 `umbral_sell`, (C) reactivar la rama de observación 0.35–0.65 comentada en
 `Class_DashBot.py:2980`.
 
-### Etapa 2 — sanear la aritmética (`float`, no `int`)
-Quitar los `int()` de `vender_qty` y `_pos`; redondeo de precio dependiente del
-vehículo/`tickSize` en vez de `round(…, 2)`. Toca también la rama Crypto ya existente de
-`preservation_build_trama` → **beneficia a Preservation antes de revisarlo**. Verificable en
-DRY-RUN sin abrir el gate de vehículo.
+### Etapa 2 — sanear la aritmética (`float`, no `int`) — **CERRADA 2026-08-23**
+
+Dos helpers nuevos en `DataHub` (`Class_customer.py`), únicos dueños de la granularidad:
+
+| Helper | Crypto | Resto |
+|---|---|---|
+| `quantiza_qty(vehiculo, symbol, qty)` | trunca a `stepSize` | `int(qty)` |
+| `quantiza_precio(vehiculo, symbol, precio)` | trunca a `tickSize` | `round(precio, 2)` |
+
+Ambos truncan **hacia abajo** (`v - v % step`) leyendo `DataHub.info[symbol]["lotSize"]`, que ya
+trae `stepSize` y `tickSize` de `get_exchange_info()`. Sin lotSize cacheado caen a `0.00001` /
+`0.01` — nunca revientan. `preservation_calc_qty()` dejó de repetir la fórmula inline y llama a
+`quantiza_qty`.
+
+En `_gains_capture_run` los tres puntos de aritmética pasan por los helpers, con la granularidad
+tomada de un único local `gc_vehiculo = "Stock"` — el *seam* que la Etapa 3 convierte en parámetro
+del método. Mientras valga `"Stock"` la cuenta es **idéntica** a la de antes (`int()` y
+`round(…, 2)`), así que la etapa no cambia nada del camino que ya corre. También se corrigió
+`"qty": int(vender_qty)` → `float(...)` en el `json_contexto` de `symbol_decision_history`, que
+truncaba a 0 cualquier cantidad fraccionaria en el log.
+
+**Preservation, rama Crypto** (`preservation_build_trama`): mandaba `round(stop_price, 2)` a
+Binance. En cualquier par con tick < 0.01 (VET, DOGE, ADA) eso es un precio distorsionado o
+inválido — 0.0234 → 0.02. Ahora usa los mismos helpers. Es rama Crypto exclusiva.
+
+**Pendiente para la Etapa 3:** los mensajes de Telegram y los logs de GainsCapture formatean con
+`${lmt_price:.2f}`; con un par de precio bajo mostrarían `$0.00`. No se tocó porque cambiarlo altera
+cómo se ve el camino que ya corre — va cuando `gc_vehiculo` deje de ser fijo.
 
 ### Etapa 3 — abrir el cableado de vehículo
 `_gains_capture_run(vehiculo)` parametrizado; `Agente_GainsCapture` itera `("Stock", "Crypto")`
@@ -250,7 +273,8 @@ ROI **15,2%**, así que queda afuera por ROI, no por monto. Bajar solo `min_gana
 cambiado una sola decisión. Si se aplica, van los dos: `min_roi` 0.20 → 0.12 y `min_ganancia`
 200 → 60. **Pendiente de autorización del usuario.**
 
-El siguiente paso con efecto real es la **Etapa 2** (aritmética `float`), que además arregla el
-`round(…, 2)` que hoy rompe la rama Crypto de Preservation. Sigue en pie instrumentar los tres
-`continue` silenciosos de `_gains_capture_run`, que son la razón por la que GainsCapture no deja
-rastro en `symbol_decision_history`.
+La **Etapa 2** quedó cerrada el 2026-08-23 (helpers `quantiza_qty`/`quantiza_precio`), con lo que
+la rama Crypto de Preservation dejó de mandar precios redondeados a 2 decimales. El siguiente paso
+es la **Etapa 3**: parametrizar el vehículo y resolver el origen de la categoría antes del loop.
+Sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`, que son la razón
+por la que GainsCapture no deja rastro en `symbol_decision_history`.

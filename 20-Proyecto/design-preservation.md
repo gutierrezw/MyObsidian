@@ -261,6 +261,15 @@ Claude solo puede subir el stop, nunca bajarlo ni cancelarlo.
 }
 ```
 
+### Granularidad de la trama por vehículo (fix 2026-08-23)
+
+`preservation_build_trama` armaba la rama Crypto con `float(round(stop_price, 2))` en `price` y
+`stopPrice`. En cualquier par con `tickSize` < 0.01 (VET, DOGE, ADA) eso manda a Binance un precio
+distorsionado o directamente inválido: 0.0234 → 0.02. Ahora usa `DataHub.quantiza_precio()` y
+`DataHub.quantiza_qty()`, que truncan a `tickSize`/`stepSize` leyendo
+`DataHub.info[symbol]["lotSize"]`. `preservation_calc_qty()` llama al mismo `quantiza_qty` en vez
+de repetir la fórmula inline. La rama Stock de ese método no cambió.
+
 ### Campos guardados en order_trader (Preservation)
 
 | Campo | Valor | Propósito |

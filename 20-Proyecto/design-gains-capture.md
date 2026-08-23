@@ -144,6 +144,13 @@ recorta `vender_qty` a `position` con la ganancia prorrateada; si tras el recort
 el techo cruzado con Preservation (H5) — acota contra la posición, no contra lo ya
 comprometido por el otro agente.
 
+**Granularidad de qty y precio por vehículo (2026-08-23).** `vender_qty`, `_pos` y `lmt_price`
+dejaron de usar `int()` y `round(…, 2)` en duro: pasan por `DataHub.quantiza_qty()` y
+`DataHub.quantiza_precio()`, que truncan a `stepSize`/`tickSize` en Crypto y reproducen exactamente
+la cuenta anterior en el resto. La granularidad sale de un único local `gc_vehiculo`, hoy fijo en
+`"Stock"` — la Etapa 3 del [[plan-crypto-gainscapture]] lo convierte en parámetro del método. Sin
+ese cambio la aritmética de este agente es la misma de siempre.
+
 **Visible en el panel de TradingView (2026-08-22).** `_abrir_tradingview()` arma el bloque
 "Venta por clase" llamando a `maximiza_sell_lotes()` con lo que ya está cacheado en
 `self.info[symbol]["sell"]` (`list_gain`, `position`, `costobase`) — sin query extra a
