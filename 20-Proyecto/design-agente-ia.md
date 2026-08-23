@@ -264,6 +264,12 @@ excluido por precio — siempre se puede comprar al menos 1 acción.
 ```
 Agente_ClaudeIA corre (@wait_rate 86400 — 1 vez/día)
         │
+        ├─ 0. Calendario: DataHub.mercado_abierto("Stock") — sábado/domingo SKIP
+        │        Stock y FCI/BBVA.ARS operan solo días hábiles. La guarda va antes
+        │        de la llamada a la API: sin mercado no hay propuesta que ejecutar
+        │        y el request se ahorra. Misma regla que opportunity_handler_message_*
+        │        (agregada 2026-08-23 tras una propuesta SELL FBA HORIZONTE un sábado)
+        │
         ├─ 1. Lee parámetros del vehículo (sesion.llave_privada)
         │        monto_por_trade=170, gate_consenso_min=4, leverage_max=1.8
         │
