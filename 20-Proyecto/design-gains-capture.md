@@ -345,6 +345,13 @@ bloque `gains_capture` de BD es ignorado.
    - Si expira y no viene otra (el símbolo dejó de calificar), `DataHub.del_alert(hash_id)` encola
      el borrado y `_flush_telegram_deletes()` lo drena en el mismo ciclo del loop de agentes.
 
+   **Los dos caminos se pisaban.** La expiración y la propuesta nueva ocurren en la misma corrida
+   del agente, así que la cola quedaba con el borrado de `gc_SYMBOL` *y* la alerta con ese mismo
+   hash: el flush mandaba el mensaje y el flush de borrados se lo llevaba puesto un instante
+   después — cero mensajes en el chat, aunque el log dijera "propuesta enviada". Corregido en
+   `add_alert()`: encolar una alerta con `hash_id` **cancela** cualquier borrado pendiente de ese
+   hash, porque el mensaje nuevo ya reemplaza al viejo.
+
 **RSI en la propuesta (2026-08-23).** La línea `RSI d/w` usa la misma escala de color que los
 mensajes de oportunidades (`💚 ≥70 · 🟢 ≥60 · 🟡 ≥50 · 🟠 ≥40 · 🔴 <40`), vía `_rsi_texto()`. En una
 venta el RSI alto juega a favor, así que el verde acompaña la decisión. Si no hay dato técnico la
