@@ -35,7 +35,8 @@ Cobertura = Colateral (USD) / Deuda (USDT) = 1 / LTV
   },
   "loan": {
     "max_deuda_pct": 0.09,
-    "delta_minimo": 1.0
+    "delta_minimo": 1.0,
+    "repay_pct_venta": 0.05
   }
 }
 ```
@@ -61,6 +62,38 @@ si total_debt_actual + requested > capital_earn * max_deuda_pct → rechazar / r
 **Ejemplo:** capital_earn=$2,000 → max_deuda=$180 USDT. Deuda actual=$147 → disponible=$33.
 API: `GET /sapi/v1/simple-earn/flexible/position`
 > Ambos agentes los leen desde un cache compartido (`_params_cache`) sin releer BD.
+
+### Repago automático con la venta (`loan.repay_pct_venta`) — 2026-08-23
+
+Cada venta Crypto que se ejecuta paga deuda con un porcentaje de **el importe bruto de la
+operación** (no de la ganancia). Alcanza a toda la cuenta Crypto: manual, agentes y Telegram.
+`repay_pct_venta = 0` lo desactiva; el valor en producción arrancó en `0.05` para ir buscando el
+mejor número.
+
+**Cuánto se paga:**
+
+```
+monto = min(importe_venta * repay_pct_venta, deuda_total, usdt_libre_spot)
+```
+
+Nunca más que la deuda viva, nunca más que el USDT libre. Si no hay deuda, no paga. Si el monto
+queda bajo `loan.delta_minimo` ($1), **no paga y lo loguea** — no acumula para la próxima venta;
+si los logs muestran que se saltea seguido, se convierte en acumulador.
+
+**Dónde engancha:** en el fill, no en el envío de la orden. Una LIMIT SELL no es plata hasta que
+se ejecuta. El hook es `procesa_execution_report_crypto()` con `X == "FILLED"` y `S == "SELL"`,
+usando el campo `Z` del `executionReport` (quote acumulado = los USDT que entraron). `FILLED` es
+terminal, así que dispara una sola vez aunque la orden se haya llenado en varios fills.
+
+El repago corre en un hilo daemon aparte: son tres llamadas REST y no pueden frenar el stream del
+websocket.
+
+**Cómo se reparte:** con `loan_repay_distribuir()`, el mismo criterio de nivelación del botón
+**Pagar** de Análisis Crypto — cada préstamo recibe en proporción a cuánto excede la deuda media
+que quedaría tras el pago, o sea paga más donde más deuda hay. La lógica vivía anidada dentro de
+la sección Tk (`_ejecutar_pago`), inalcanzable desde un agente; se subió a `ServiciosCrypto` y
+ahora la UI y el repago automático entran por la misma puerta. Un solo criterio de reparto en
+todo el sistema.
 
 ### Selección del target
 
@@ -119,10 +152,20 @@ Convergencia al rango en ~4–8 iteraciones (20–40 min a ciclos de 5 min).
 Class_DashBot.py
   └── Agente_LtvControl()          ← coordinador puro (@wait_rate(300))
 
-Class_ServiciosCrypto.py           ← PENDIENTE CREAR
+DashMain.py
+  └── procesa_execution_report_crypto()
+        └── repay_deuda_venta()    ← coordinador puro, hilo daemon
+
+Class_ServiciosCrypto.py
   └── ServiciosCrypto
-        ├── ltv_check_and_adjust() ← mover desde Class_ApiBinnace.py
+        ├── ltv_check_and_adjust()
+        ├── repay_venta()          ← cuánto pagar (% del importe, topes)
+        ├── loan_repay_distribuir()← cómo repartirlo — lo usa tambien el boton Pagar
+        ├── loan_ongoing()         ← prestamos vivos normalizados
         └── loan_balance()         ← PENDIENTE (ver sección abajo)
+
+Class_Analisis.py
+  └── boton Pagar → ServiciosCrypto().loan_repay_distribuir()
 
 Class_ApiBinnace.py
   └── BinanceSpot (API wrappers puros)
@@ -197,3 +240,7 @@ y agregar `get_flexible_loan_borrow()` en `Class_ApiBinnace.py`.
 | 2026-03-24 | tolerance relativa: `target*(1±tol)` — rango 26.6%–29.4% para target=0.28 |
 | 2026-03-24 | `preservation` y `ltv` comparten cache `_params_cache` en ClassAgenteIA |
 | 2026-03-24 | Agente activo en producción — ejecuta ajustes reales cada 5 min |
+| 2026-08-23 | Repago sobre el **importe** de la venta, no sobre la ganancia — y solo si hay deuda |
+| 2026-08-23 | El hook es el fill (`FILLED`/`Z`), no el envío de la orden: antes del fill no hay plata |
+| 2026-08-23 | Reparto = el de `_ejecutar_pago` (nivelación), subido a `ServiciosCrypto`. Se descartó "mayor LTV primero" para no tener dos criterios |
+| 2026-08-23 | Bajo `delta_minimo` se saltea y se loguea — sin acumulador, no se agrega estado nuevo sin evidencia |
