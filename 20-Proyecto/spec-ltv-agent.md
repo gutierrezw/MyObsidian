@@ -96,6 +96,14 @@ Nunca más que la deuda viva, nunca más que el USDT libre. Si no hay deuda, no 
 queda bajo `loan.delta_minimo` ($1), **no paga y lo loguea** — no acumula para la próxima venta;
 si los logs muestran que se saltea seguido, se convierte en acumulador.
 
+**El piso `delta_minimo` se aplica a cada cuota, no solo al total.** Binance rechaza los repagos
+dust: repartir $1,01 entre 7 préstamos daba cuotas de $0,02 y $0,04, o sea cuatro llamadas REST de
+las cuales tres volvían con error. `_reparte_cuotas()` descarta las cuotas bajo el mínimo y
+**redistribuye** su parte entre las que quedan, iterando; si todas caen bajo el piso sobrevive la
+de mayor exceso y se lleva el monto entero (topeado por su deuda). El caso de $1,01 pasó de cuatro
+cuotas dust a una sola de $1,01 al préstamo más endeudado. Afecta también al botón **Pagar**, que
+comparte el método — antes tenía el mismo defecto.
+
 **Dónde engancha:** en el fill, no en el envío de la orden. Una LIMIT SELL no es plata hasta que
 se ejecuta. El hook es `procesa_execution_report_crypto()` con `X == "FILLED"` y `S == "SELL"`,
 usando el campo `Z` del `executionReport` (quote acumulado = los USDT que entraron). `FILLED` es
@@ -260,3 +268,4 @@ y agregar `get_flexible_loan_borrow()` en `Class_ApiBinnace.py`.
 | 2026-08-23 | El hook es el fill (`FILLED`/`Z`), no el envío de la orden: antes del fill no hay plata |
 | 2026-08-23 | Reparto = el de `_ejecutar_pago` (nivelación), subido a `ServiciosCrypto`. Se descartó "mayor LTV primero" para no tener dos criterios |
 | 2026-08-23 | Bajo `delta_minimo` se saltea y se loguea — sin acumulador, no se agrega estado nuevo sin evidencia |
+| 2026-08-23 | `delta_minimo` se aplica **por cuota** y se redistribuye lo descartado: las cuotas dust eran llamadas perdidas |
