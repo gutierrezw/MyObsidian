@@ -244,7 +244,14 @@ son favorables para continuar subiendo.
   explícitamente con el usuario, dejar constancia por si se quiere cambiar.
 - El campo `"urgencia"` del diseño original no se usa en el schema real (queda en el
   ejemplo del audit log más abajo por herencia del diseño, pero `_gains_capture_claude_eval`
-  no lo pide ni lo recibe).
+  no lo pide ni lo recibe). **2026-08-23:** se sacó de la traza `CLAUDE` de
+  `symbol_decision_history`, donde siempre escribía `urgencia=None`.
+- La traza `CLAUDE` lleva la decisión en la columna `mensaje`, no en `json_contexto`: el panel
+  Symbol Events sólo muestra `timestamp, agente, tag, mensaje`, así que un mensaje que no se
+  explique solo es una fila inútil. Formato:
+  `vender | clase 25% | ROI 28.3% | RSI_d 80.4 — <razón de Claude, 160 chars>`.
+  El `json_contexto` sigue guardando lo mismo con más precisión (`roi` 4 decimales,
+  `razon` 300 chars) para consulta por SQL.
 
 ---
 
