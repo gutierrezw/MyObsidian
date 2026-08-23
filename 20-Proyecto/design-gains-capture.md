@@ -183,6 +183,14 @@ rama BUY que ya chequeaba USDT. Lo heredan GainsCapture, Preservation Crypto y T
 ahora corre en hilo de agente, donde una ventana modal no corresponde. La UI no pierde el aviso,
 porque `valida_wallet_spot()` muestra el suyo al volver a medir.
 
+**Precisión del amount (2026-08-23).** El faltante sale de una resta de floats (`qty - libre`) y
+arrastra la basura binaria: `0.0016194699999999998`. Binance acepta 8 decimales y devuelve
+`-1102 "Mandatory parameter 'amount' ... malformed"`, con lo cual el rescate falla, el spot sigue
+sin saldo y `place_OrderCrypto` termina en `No Submit`. Se redondea dentro de
+`crypto_earn_rescate()` — único punto por donde pasan todos los rescates — con `math.ceil` a 8
+decimales y se manda como string `f"{amount:.8f}"`. Hacia arriba a propósito: rescatar un satoshi
+de menos deja la orden sin entrar.
+
 **Rechazo del broker sin excepción (2026-08-23).** `place_OrderCrypto` devuelve `{}, {}, {}` ante un
 rechazo, que vuelve como `{"values": {}, "status": "No Submit"}` — sin excepción. El código marcaba
 igual `estado="escalon_pendiente"`, que **no expira** (a diferencia de `pendiente_autorizacion`, que
