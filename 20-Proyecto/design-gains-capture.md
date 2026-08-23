@@ -307,6 +307,17 @@ bloque `gains_capture` de BD es ignorado.
    guarda en el estado y viaja en el `callback_data`; si no coincide, se rechaza con
    *"esa propuesta ya venció"*. Los comandos de texto no lo mandan y siguen actuando sobre la
    vigente.
+
+   **El envío va por `DataHub.add_alert(msg, telegram=True, markup=...)`, no por
+   `exec_modulo_async(send_Telegram(...))`.** `_gains_capture_run()` es sincrónico pero corre
+   *dentro* de la corrutina `Agente_GainsCapture`, así que `exec_modulo_async` toma la rama
+   `loop.is_running()` → `create_task()`, que vuelve enseguida y queda pendiente; cuando el agente
+   termina, `run_until_complete` corta el loop y **la tarea se descarta sin ejecutarse**. Las
+   propuestas del 2026-08-23 10:54 quedaron logueadas como "enviada" sin que saliera ningún
+   mensaje. `_propuesta_supervisado` (Agente IA) sí puede usar `exec_modulo_async` porque
+   `Agente_ClaudeIA` se invoca de forma sincrónica, fuera del loop. `add_alert` además deja
+   registro en la tabla de incidencias; el `markup` viaja solo en memoria, así que una alerta
+   recuperada por `load_pending_alerts()` tras una caída se reenvía como texto plano.
 3. `gains_capture_state[symbol]` → `estado: "pendiente_autorizacion"`, guarda la propuesta completa (`escenario`, `qty`, `lmt_price`, `conid`, `account`, `det`) en `pendiente`.
 4. Botón **Ejecutar** o `/ok_<SYMBOL>` → `_gains_capture_aprobar(symbol)` → coloca la orden → flujo normal de fill
 5. Botón **Diferir** o `/no_<SYMBOL>` → `_gains_capture_rechazar(symbol)` → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
