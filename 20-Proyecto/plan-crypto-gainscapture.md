@@ -95,7 +95,7 @@ Independiente del resto y verificable en el panel/Telegram el mismo día. Propue
 | Vehículo | Bloque | min_roi | min_ganancia |
 |---|---|---|---|
 | Crypto | `gains_oportunidades` | 0.09 | **50 — APLICADO 2026-08-22** (antes 90) |
-| Crypto | `gains_capture` | 0.20 | ~60 (hoy 200) |
+| Crypto | `gains_capture` | **0.10 — APLICADO 2026-08-23** (antes 0.20) | **40 — APLICADO 2026-08-23** (antes 200) |
 | BotCrypto | ambos | — | ~~agregar los bloques~~ → **DESCARTADO 2026-08-23**, ver abajo |
 
 **BotCrypto sale del plan (2026-08-23).** Es un bot de trading puro: no entra en GainsCapture ni
@@ -109,6 +109,19 @@ consultan. Agregarle los bloques habría sido configuración muerta.
 **Aplicado 2026-08-22:** `Crypto.gains_oportunidades.min_ganancia` 90 → **50** en `sesion.parameters`.
 No requiere reinicio: `load_vehiculo_params` cachea con `PARAMS_TTL = 60` segundos. Con ese piso,
 la clase 33% de BTCUSDT ($54) pasa a entrar; la de 25% ($41) sigue afuera.
+
+**Aplicado 2026-08-23 — `Crypto.gains_capture` a `min_roi 0.10` / `min_ganancia 40`.** Valores de
+prueba elegidos por el usuario para **ejercitar el flujo**, no como calibración definitiva: se
+reajustan una vez que se vea comportamiento real. Se movieron los dos a la vez porque el gate
+exige ambas condiciones (ver corrección al pie). Con ese piso entran las clases de BTCUSDT de
+100% ($100 / 15,2%) y 33% ($54), que antes quedaban fuera por ROI.
+
+`UPDATE sesion SET parameters = JSON_SET(...)` sobre el sub-objeto `gains_capture` únicamente —
+`parameters` es un blob con credenciales, no se reescribe entero. Las 5 claves quedaron intactas.
+
+> **Todavía inerte.** `_gains_capture_run` pide el bloque como `gains_config("Stock",
+> "gains_capture")` (`Class_DashBot.py:894`), así que estos valores **no se leen hasta la Etapa 3**.
+> Quedan cargados esperando el cableado de vehículo.
 
 **Umbral del modelo — sin cambios por decisión del usuario (2026-08-22).** `modelo_sellv01`
 queda en `umbral_sell = 0.65`. Detectado ese día que ese umbral, y no `min_ganancia`, era lo que
