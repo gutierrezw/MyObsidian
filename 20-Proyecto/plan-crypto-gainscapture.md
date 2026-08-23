@@ -142,6 +142,16 @@ DRY-RUN sin abrir el gate de vehículo.
 `_gains_capture_run(vehiculo)` parametrizado; `Agente_GainsCapture` itera `("Stock", "Crypto")`
 como hace `Agente_ManagerPreservation` con su tupla.
 
+**Falta también el lector de la categoría (detectado 2026-08-23).** La Etapa 0 resolvió *dónde
+vive* la categoría de Crypto — `inversion.categoriaActivo`, en `'N'` para los 25 símbolos. Pero el
+gate de `_gains_capture_run` la busca con `self.Market.load_symbols(self.account)`
+(`Class_DashBot.py:906`), que consulta `market`. Los símbolos Crypto entran al loop
+—`get_info_symbols_gain()` los devuelve— y mueren ahí con `categ = None`.
+
+Para que Crypto pase el gate, el origen de la categoría tiene que resolverse **una sola vez antes
+del loop**, según el vehículo, y que el loop consuma un dict ya resuelto sin saber de dónde salió.
+Crypto lo toma de `inversion`. El camino que ya existe no se toca.
+
 > **Cuidado — lección H6 (2026-08-21):** en Preservation, Crypto quedó **perpetuamente en
 > DRY-RUN** porque `is_live` dependía de `vehiculo == "Stock"`, y por eso se lo removió de la
 > tupla (`Class_AgentManager.py:781-799`). Revisar ese mismo patrón acá **antes** de habilitar.
