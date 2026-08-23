@@ -161,23 +161,48 @@ inválido — 0.0234 → 0.02. Ahora usa los mismos helpers. Es rama Crypto excl
 `${lmt_price:.2f}`; con un par de precio bajo mostrarían `$0.00`. No se tocó porque cambiarlo altera
 cómo se ve el camino que ya corre — va cuando `gc_vehiculo` deje de ser fijo.
 
-### Etapa 3 — abrir el cableado de vehículo
-`_gains_capture_run(vehiculo)` parametrizado; `Agente_GainsCapture` itera `("Stock", "Crypto")`
-como hace `Agente_ManagerPreservation` con su tupla.
+### Etapa 3 — abrir el cableado de vehículo — **CERRADA 2026-08-23**
 
-**Falta también el lector de la categoría (detectado 2026-08-23).** La Etapa 0 resolvió *dónde
-vive* la categoría de Crypto — `inversion.categoriaActivo`, en `'N'` para los 25 símbolos. Pero el
-gate de `_gains_capture_run` la busca con `self.Market.load_symbols(self.account)`
-(`Class_DashBot.py:906`), que consulta `market`. Los símbolos Crypto entran al loop
-—`get_info_symbols_gain()` los devuelve— y mueren ahí con `categ = None`.
+`_gains_capture_run(vehiculo="Stock")` parametrizado; `Agente_GainsCapture` itera
+`("Stock", "Crypto")` chequeando `DataHub.manager_sesion` por vehículo, igual que
+`Agente_ManagerPreservation` con su tupla. Todo lo que era literal `"Stock"` adentro
+—`_load_params`, `gains_config`, `select_inversion`, `preservation_send_order`,
+`insert_preservation_order`, `order_trader.vehiculo`— pasó a la variable.
 
-Para que Crypto pase el gate, el origen de la categoría tiene que resolverse **una sola vez antes
-del loop**, según el vehículo, y que el loop consuma un dict ya resuelto sin saber de dónde salió.
-Crypto lo toma de `inversion`. El camino que ya existe no se toca.
+**Origen de la categoría — resuelto una vez antes del loop.** Método nuevo
+`_gains_capture_categorias(vehiculo, positions)`:
 
-> **Cuidado — lección H6 (2026-08-21):** en Preservation, Crypto quedó **perpetuamente en
-> DRY-RUN** porque `is_live` dependía de `vehiculo == "Stock"`, y por eso se lo removió de la
-> tupla (`Class_AgentManager.py:781-799`). Revisar ese mismo patrón acá **antes** de habilitar.
+| Vehículo | Fuente | Por qué |
+|---|---|---|
+| Stock | `Market.load_symbols(account)` → `market` | camino que ya existía, incluye símbolos fuera de cartera |
+| resto | `positions` → `inversion.categoriaActivo` | Crypto no está en `market`; su categoría vive en `inversion` (Etapa 0) |
+
+No agrega query: `positions` ya se leía con `select_inversion(tipoin=vehiculo, ticket="all")`, que
+es un `SELECT *` y por lo tanto ya traía la columna. El loop consume un dict resuelto sin saber de
+dónde salió.
+
+**Filtro por vehículo en el loop.** `get_info_symbols_gain()` devuelve todos los símbolos con
+`sell` cacheado, de cualquier vehículo; ahora se filtra por `s["vehiculo"] == vehiculo` — la clave
+la escribe cada instancia dueña de sus posiciones (`Class_customer.py:3472`). Antes los símbolos de
+otros vehículos entraban y morían en el gate de categoría; ahora ni entran.
+
+**Crypto corta antes de proponer — y se ve en el log.** `gains_capture_build_trama_sell()` todavía
+no tiene rama Binance (Etapa 4). Dos guardas:
+
+1. `DataHub.gains_capture_vehiculos_trama = ("Stock",)` — declarativo, al lado del builder. Si el
+   vehículo no está, el candidato se loguea como `candidato en observacion` y se corta **antes** de
+   la evaluación Claude: no tiene sentido pagar una decisión que no se puede ejecutar, y menos cada
+   30 minutos sobre el mismo símbolo (el estado no avanza, así que reintentaría en cada ciclo).
+2. `if not trama: continue` justo después de armarla, como respaldo fail-closed. La trama se
+   construye ahora **antes** del gate de modo, así que un vehículo sin rama tampoco manda propuesta
+   por Telegram — un `/ok_SYMBOL` que no puede ejecutarse es peor que no proponer. El handler
+   `handle_gains_capture_ok` toma el vehículo de `pendiente["vehiculo"]` y tiene la misma guarda.
+
+> **Lección H6 (2026-08-21) aplicada.** En Preservation, Crypto quedó perpetuamente en DRY-RUN
+> porque `is_live` dependía de `vehiculo == "Stock"`, y se lo removió de la tupla
+> (`Class_AgentManager.py:781-799`). Acá no hay `is_live` por vehículo —el semáforo es
+> `DataHub.modo_operacion`, único del sistema— y lo que falta (la trama) está **declarado y
+> logueado**, no simulando en silencio.
 
 ### Etapa 4 — rama Crypto en `gains_capture_build_trama_sell`
 Trama Binance con `stepSize`/`tickSize`. El resto del riel ya existe. Recién acá se emiten
@@ -273,8 +298,12 @@ ROI **15,2%**, así que queda afuera por ROI, no por monto. Bajar solo `min_gana
 cambiado una sola decisión. Si se aplica, van los dos: `min_roi` 0.20 → 0.12 y `min_ganancia`
 200 → 60. **Pendiente de autorización del usuario.**
 
-La **Etapa 2** quedó cerrada el 2026-08-23 (helpers `quantiza_qty`/`quantiza_precio`), con lo que
-la rama Crypto de Preservation dejó de mandar precios redondeados a 2 decimales. El siguiente paso
-es la **Etapa 3**: parametrizar el vehículo y resolver el origen de la categoría antes del loop.
-Sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`, que son la razón
-por la que GainsCapture no deja rastro en `symbol_decision_history`.
+Las Etapas **2 y 3** quedaron cerradas el 2026-08-23. Con eso Crypto ya recorre el pipeline
+completo —config propia, categoría desde `inversion`, lotes, escenarios, granularidad
+`stepSize`/`tickSize`— y se detiene en el único punto que falta: la trama Binance. Lo que queda es
+la **Etapa 4**, la primera con órdenes reales.
+
+Antes de habilitarla conviene mirar unos días los logs `candidato en observacion` para Crypto: son
+la validación en seco de que los umbrales `min_roi 0.10 / min_ganancia 40` producen candidatos
+razonables. Sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`, que
+son la razón por la que GainsCapture no deja rastro en `symbol_decision_history`.

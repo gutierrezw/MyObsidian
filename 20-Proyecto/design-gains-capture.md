@@ -144,6 +144,19 @@ recorta `vender_qty` a `position` con la ganancia prorrateada; si tras el recort
 el techo cruzado con Preservation (H5) — acota contra la posición, no contra lo ya
 comprometido por el otro agente.
 
+**Parametrizado por vehículo (2026-08-23).** `_gains_capture_run(vehiculo="Stock")` y
+`Agente_GainsCapture` iterando `("Stock", "Crypto")` con chequeo de `DataHub.manager_sesion` por
+vehículo. La `categoriaActivo` que abre el gate se resuelve una vez antes del loop en
+`_gains_capture_categorias()`: Stock desde `market` (`load_symbols`), el resto desde
+`inversion.categoriaActivo`, que ya viene en `positions` sin query extra. El loop además filtra
+`get_info_symbols_gain()` por `vehiculo`, así los símbolos de otros vehículos no entran.
+
+Un vehículo sin rama en `gains_capture_build_trama_sell()` —hoy todo lo que no sea Stock, ver
+`DataHub.gains_capture_vehiculos_trama`— deja el candidato en el log como `candidato en
+observacion` y corta **antes** de la evaluación Claude y antes de la propuesta por Telegram. La
+trama se arma antes del gate de modo justamente para eso: proponer un `/ok_SYMBOL` que después no
+puede ejecutarse sería peor que no proponer.
+
 **Granularidad de qty y precio por vehículo (2026-08-23).** `vender_qty`, `_pos` y `lmt_price`
 dejaron de usar `int()` y `round(…, 2)` en duro: pasan por `DataHub.quantiza_qty()` y
 `DataHub.quantiza_precio()`, que truncan a `stepSize`/`tickSize` en Crypto y reproducen exactamente
