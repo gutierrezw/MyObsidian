@@ -292,11 +292,14 @@ bloque `gains_capture` de BD es ignorado.
    ROI lote: 33.0% | Ganancia: $120
    Escenario: 33% | Vender 12 acc LMT $19.50
    RSI_d=78 sobrecomprado — señal de toma de ganancias
-   /ok_PBR  |  /no_PBR
+   [ ✅ Ejecutar ]  [ ⏸ Diferir ]
    ```
+   Botones inline, homologados con la propuesta del Agente IA (2026-08-23). Antes eran los
+   comandos de texto `/ok_PBR | /no_PBR`, que **siguen funcionando**: sirven para mensajes
+   viejos y como salida si el callback falla. `callback_data` = `gc_ok|SYMBOL` / `gc_no|SYMBOL`.
 3. `gains_capture_state[symbol]` → `estado: "pendiente_autorizacion"`, guarda la propuesta completa (`escenario`, `qty`, `lmt_price`, `conid`, `account`, `det`) en `pendiente`.
-4. `/ok_<SYMBOL>` (`handle_gains_capture_ok`) → coloca la orden → flujo normal de fill
-5. `/no_<SYMBOL>` (`handle_gains_capture_no`) → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
+4. Botón **Ejecutar** o `/ok_<SYMBOL>` → `_gains_capture_aprobar(symbol)` → coloca la orden → flujo normal de fill
+5. Botón **Diferir** o `/no_<SYMBOL>` → `_gains_capture_rechazar(symbol)` → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
 6. **Sin respuesta en 30 minutos → propuesta cancelada** (`elapsed > 1800`, coincide con el diseño)
 
 ---
@@ -483,6 +486,9 @@ original como referencia histórica de los pasos ejecutados, no como pendiente.
 - Click → toggle `DataHub.gains_capture_modo` + `write_json_tmp("gains_capture_config.json", {"modo": ...})`
 
 ### Paso 6 — Telegram handler
+- Botones inline **Ejecutar** / **Diferir** (`gc_ok|` / `gc_no|` en `handle_callback`)
+- La lógica vive en `_gains_capture_aprobar()` / `_gains_capture_rechazar()`, no en el handler:
+  entra por dos puertas (botón y comando) y no puede estar duplicada
 - Comandos `/ok_<SYMBOL>` y `/no_<SYMBOL>` para modo autorizado
 - `/ok_SKLZ` → coloca la orden pendiente → flujo normal de fill
 - `/no_SKLZ` → nivel omitido 6h, re-evalúa en próximo ciclo
