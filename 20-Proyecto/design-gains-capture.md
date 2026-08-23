@@ -306,6 +306,7 @@ bloque `gains_capture` de BD es ignorado.
    📈 GainsCapture — PBR
    ROI lote: 33.0% | Ganancia: $120
    Escenario: 33% | Vender 12 acc LMT $19.50
+   RSI d/w: 💚 78.0 / 71.2
    RSI_d=78 sobrecomprado — señal de toma de ganancias
    [ ✅ Ejecutar ]  [ ⏸ Diferir ]
    ```
@@ -337,6 +338,17 @@ bloque `gains_capture` de BD es ignorado.
 4. Botón **Ejecutar** o `/ok_<SYMBOL>` → `_gains_capture_aprobar(symbol)` → coloca la orden → flujo normal de fill
 5. Botón **Diferir** o `/no_<SYMBOL>` → `_gains_capture_rechazar(symbol)` → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
 6. **Sin respuesta en 30 minutos → propuesta cancelada** (`elapsed > 1800`, coincide con el diseño)
+   y **el mensaje se borra del chat**: sus botones ya no ejecutan nada (el `pendiente_id` dejó de
+   coincidir), así que dejarlo ahí solo confunde. Dos caminos, los dos por `hash_id = gc_{symbol}`:
+   - Si viene una propuesta nueva del mismo símbolo, la reemplaza — es el mismo mecanismo
+     `_save_message(hash_id)` → `_delete_message_hash()` que usan las oportunidades cuando mejoran.
+   - Si expira y no viene otra (el símbolo dejó de calificar), `DataHub.del_alert(hash_id)` encola
+     el borrado y `_flush_telegram_deletes()` lo drena en el mismo ciclo del loop de agentes.
+
+**RSI en la propuesta (2026-08-23).** La línea `RSI d/w` usa la misma escala de color que los
+mensajes de oportunidades (`💚 ≥70 · 🟢 ≥60 · 🟡 ≥50 · 🟠 ≥40 · 🔴 <40`), vía `_rsi_texto()`. En una
+venta el RSI alto juega a favor, así que el verde acompaña la decisión. Si no hay dato técnico la
+línea no aparece — nada de `N/A` en el cuerpo del mensaje.
 
 ---
 
