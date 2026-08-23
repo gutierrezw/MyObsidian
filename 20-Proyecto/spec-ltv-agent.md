@@ -41,6 +41,22 @@ Cobertura = Colateral (USD) / Deuda (USDT) = 1 / LTV
 }
 ```
 
+> **`sesion.parameters` es BLOB, no JSON.** `JSON_SET` directo falla con
+> *Error 3144: Cannot create a JSON value from a string with CHARACTER SET 'binary'*.
+> Hay que convertir de ida y volver, siempre sobre el sub-objeto para no reescribir el resto
+> del blob (que tiene credenciales):
+>
+> ```sql
+> UPDATE sesion
+>    SET parameters = CAST(
+>          JSON_SET(CONVERT(parameters USING utf8mb4), '$.loan.repay_pct_venta', 0.05)
+>          AS BINARY)
+>  WHERE vehiculo = 'Crypto';
+> ```
+>
+> Para leer: `SELECT JSON_EXTRACT(CONVERT(parameters USING utf8mb4), '$.loan') ...`
+> En Python es el `raw.decode("utf-8")` de `ServiciosCrypto._loan_config()`.
+
 > `preservation`, `ltv` y `loan` comparten el mismo JSON en BD.
 > Todos los agentes leen desde el cache compartido (`_params_cache`) sin releer BD.
 
