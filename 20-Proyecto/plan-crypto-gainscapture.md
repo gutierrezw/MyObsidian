@@ -52,10 +52,42 @@ Bloquea todo lo demás, y también Preservation. Tres caminos:
 - **(c)** Regla implícita: `vehiculo == "Crypto"` ⇒ categoría `'N'` (todo Crypto es
   especulativo), sin fila en BD.
 
-**Recomendación Claude:** (c) para GainsCapture — no inventa datos, es una línea, y es
-semánticamente cierto. Pero **(a) es el único que sirve también a Preservation**
-(`categoriaActivo IN ('I','S')`). La decisión depende de si Crypto va a tener alguna vez activos
-"defensivos" → **decisión del usuario, pendiente**.
+> **Corrección al párrafo original.** Decía que (a) era el único camino que servía también a
+> Preservation, por su filtro `categoriaActivo IN ('I','S')`. **Ese filtro no existe en el código**:
+> `_preservation_run_vehiculo` itera `select_inversion()` y nunca consulta `categoriaActivo`. El
+> filtro está solo en `design-preservation.md`. La decisión no dependía de Preservation.
+
+**CERRADA 2026-08-22 — opción (b), con la coherencia garantizada por diseño.** Commit `2868fe8`.
+
+La columna `categoriaActivo` **ya existía** en `inversion`; lo que no existía era código que la
+escribiera — los 25 valores `'N'` de Crypto venían de una carga manual y un símbolo nuevo nacía
+en NULL, invisible para el gate de GainsCapture.
+
+La objeción del usuario al diseño inicial fue correcta: *"si cargás categoriaActivo en inversion
+debés asegurar que tiene la misma información que market"*. El fallback que se había propuesto
+(`market` gana si el símbolo está, `inversion` si no) permitía que las dos tablas contaran
+historias distintas sin que nadie se enterara. Se reemplazó por **un solo escritor por símbolo**:
+
+| Vehículo | Fuente de `categoriaActivo` | Cómo se escribe |
+|---|---|---|
+| Stock | `market` | `sync_market_to_inversion()` copia `market → inversion`, nunca al revés |
+| Crypto | `inversion` | `update_inversion()` la fija en `'N'`; Crypto no está en `market` (0 de 25) → no hay dos valores que comparar |
+| BBVA.ARS | — | **queda NULL** |
+
+Puntos de sincronización — los dos lugares donde se decide la categoría en `market`:
+`dividends_en_market_stock()` (Stock en cartera) y `sync_dividend_status_screener()` (Stock
+ex-cartera, vía `Agente_DividendStatusScreener`).
+
+**Casos que quedan en NULL, por decisión explícita:**
+- **BBVA.ARS (15 filas, 7 vivas)** — `categoriaActivo` codifica una lectura de valuación por
+  dividendos (`I` infravalorada / `S` sobrevalorada). Para un FCI en pesos no hay argumentos para
+  valorar si está infra o sobrevalorada, así que **forzar un valor sería inventar señal**. NULL es
+  la respuesta honesta.
+- **20 Stock ex-cartera sin fila en `market`** — no hay origen del cual copiar. Son posiciones
+  cerradas (`position` 0/NULL); la única con posición viva es TLT.
+
+Cobertura tras el cambio: Stock en cartera 40 de 41 con categoría (falta TLT, que no está en
+`market`); Stock ex-cartera 14 de 34; Crypto 25 de 25.
 
 ### Etapa 1 — recalibrar umbrales (sin tocar código, solo `sesion.parameters`)
 Independiente del resto y verificable en el panel/Telegram el mismo día. Propuesta a discutir:
@@ -169,3 +201,8 @@ historia arrastra extractos, diaria y performance — tres capas encadenadas, no
 El usuario quiere **revisar primero una venta real que ejecutó**, y con esos datos volver acá.
 Al retomar, la pregunta abierta es: ¿arrancamos por la decisión de la Etapa 0, o calibramos la
 Etapa 1 con las clases reales de las 12 posiciones antes de decidir?
+
+**Actualización 2026-08-22:** la Etapa 0 quedó **cerrada** (ver arriba). El siguiente paso es la
+Etapa 1 — `Crypto.gains_capture.min_ganancia` 200 → ~60 y agregar los bloques ausentes de
+BotCrypto — y sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`,
+que son la razón por la que GainsCapture no deja rastro en `symbol_decision_history`.
