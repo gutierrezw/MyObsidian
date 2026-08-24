@@ -11,6 +11,8 @@ metadata:
 
 # Sistema de Oportunidades BUY / SELL
 
+**Ver también:** [[design-autonomo]] — con qué mandato vende este módulo dentro del modo autónomo
+
 > Documento unificado. Reemplaza: `ref-regla-buy`, `ref-modelo-buy`, `ref-modelo-sell`.
 > Referencia técnica de clases: ver [[ref-modelos-ia]]
 > Gate Telegram (qué tags permiten o bloquean el envío): ver [[ref-consenso]]

@@ -10,6 +10,7 @@ H1/H9/H10 para el detalle de la revisión que detectó las divergencias.
 
 **Ver también:**
 - [[design-preservation.md]] — agente complementario (defensivo, protege ganancias)
+- [[design-autonomo]] — con qué mandato vende este módulo dentro del modo autónomo
 - [[analysis-agent-history-table.md]] — tabla unificada para aprender de ambos agentes
 
 ---

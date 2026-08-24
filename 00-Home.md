@@ -28,6 +28,7 @@
 | Doc | Descripción |
 |-----|-------------|
 | [[20-Proyecto/design-agente-ia\|Agente IA Autónomo]] | Diseño motor de decisiones |
+| [[20-Proyecto/design-autonomo\|Modo Autónomo — Doctrina]] | Con qué mandato vende cada módulo: Oportunidades/Preservation/GainsCapture |
 | [[20-Proyecto/ref-oportunidades\|Oportunidades BUY/SELL]] | Reglas, umbrales, score híbrido TOP10 |
 | [[20-Proyecto/ref-dividendos\|Dividendos]] | Lógica de selección por dividendos |
 | [[20-Proyecto/design-preservation\|Preservation Claude]] | Stop dinámico con IA |

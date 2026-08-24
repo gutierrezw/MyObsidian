@@ -7,6 +7,7 @@
 **Ver también:**
 - [[design-gains-capture.md]] — agente complementario (especulativo, captura upside)
 - [[analysis-agent-history-table.md]] — tabla unificada para aprender de ambos agentes
+- [[design-autonomo]] — con qué mandato vende este módulo dentro del modo autónomo
 
 **Activos objetivo:** `categoriaActivo` IN ('I', 'S') en tabla `market`  
 - `I` = **Infravalorado** — precio bajo vs dividendo/earnings (defensivo, compra activa)
