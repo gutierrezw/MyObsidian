@@ -105,12 +105,38 @@ cuotas dust a una sola de $1,01 al préstamo más endeudado. Afecta también al 
 comparte el método — antes tenía el mismo defecto.
 
 **Dónde engancha:** en el fill, no en el envío de la orden. Una LIMIT SELL no es plata hasta que
-se ejecuta. El hook es `procesa_execution_report_crypto()` con `X == "FILLED"` y `S == "SELL"`,
-usando el campo `Z` del `executionReport` (quote acumulado = los USDT que entraron). `FILLED` es
-terminal, así que dispara una sola vez aunque la orden se haya llenado en varios fills.
+se ejecuta.
 
-El repago corre en un hilo daemon aparte: son tres llamadas REST y no pueden frenar el stream del
-websocket.
+El diseño original colgaba del `executionReport` del websocket
+(`procesa_execution_report_crypto()` con `X == "FILLED"` y `S == "SELL"`, importe = campo `Z`).
+**Ese hook nunca corrió.** `schedule_WebsocketBinanceApiClient()` construye el
+`BinanceWSApiClient` y llama sólo a `my_allOrders()` — un polling de `allOrders` —; ni `login()`
+ni `subscribe_execution_reports()` se invocan nunca, así que el stream `executionReport` no está
+suscrito y el repago automático jamás se ejecutó. Detectado 2026-08-24: no había una sola línea
+`executionReport(Crypto)` en el log.
+
+**Disparador actual (2026-08-24):** el paso a `FILLED` que detecta
+`sync_orders_from_binance()`. Cuando una orden pendiente deja de estar abierta en Binance, el
+método consulta su estado real; si es `FILLED` y `side == "SELL"`, la acumula y la devuelve como
+segundo valor de retorno — `(actualizadas, ventas)` — con `cummulativeQuoteQty` como importe. La
+capa de datos sólo detecta; el repago lo dispara quien la llama. El fill se acota a las últimas
+24h (`updateTime`) para que una orden vieja que recién se sincroniza no gatille un repago tardío.
+
+Hay **dos** llamadores de `sync_orders_from_binance()` y los dos consumen la transición, así que
+los dos disparan el repago; el que llegue primero lo hace y el otro ya no ve la orden pendiente:
+
+| Llamador | Camino |
+|---|---|
+| `Agente_SyncOrders` (cada 5 min) | `ServiciosCrypto().repay_venta_alerta()` directo — el agente ya corre en su propio hilo |
+| refresh de Lista de Órdenes (`update_treeview_ordenes`) | `DatosVehivulo.repay_deuda_venta()` → hilo daemon, para no bloquear la UI |
+
+Ambos terminan en `repay_venta_alerta()`: repago + aviso por Telegram en un solo punto.
+
+El repago del camino UI corre en un hilo daemon aparte: son tres llamadas REST y no pueden frenar
+el refresh. El del agente es sincrónico — el agente ya está fuera del hilo de UI.
+
+`procesa_execution_report_crypto()` se conserva tal cual: si algún día se suscribe el stream,
+vuelve a funcionar sin cambios y `repay_venta_alerta()` sigue siendo el punto único.
 
 **Cómo se reparte:** con `loan_repay_distribuir()`, el mismo criterio de nivelación del botón
 **Pagar** de Análisis Crypto — cada préstamo recibe en proporción a cuánto excede la deuda media
@@ -176,13 +202,22 @@ Convergencia al rango en ~4–8 iteraciones (20–40 min a ciclos de 5 min).
 Class_DashBot.py
   └── Agente_LtvControl()          ← coordinador puro (@wait_rate(300))
 
+Class_DashBot.py
+  └── Agente_SyncOrders()          ← disparador vivo del repago (cada 5 min)
+
 DashMain.py
-  └── procesa_execution_report_crypto()
-        └── repay_deuda_venta()    ← coordinador puro, hilo daemon
+  ├── update_treeview_ordenes()    ← el otro disparador (refresh Lista de Ordenes)
+  │     └── repay_deuda_venta()    ← coordinador puro, hilo daemon
+  └── procesa_execution_report_crypto()  ← INERTE: el stream no se suscribe
+        └── repay_deuda_venta()
+
+Modulos_Mysql.py
+  └── sync_orders_from_binance()   ← detecta SELL→FILLED, devuelve (actualizadas, ventas)
 
 Class_ServiciosCrypto.py
   └── ServiciosCrypto
         ├── ltv_check_and_adjust()
+        ├── repay_venta_alerta()   ← punto unico: repay_venta() + aviso Telegram
         ├── repay_venta()          ← cuánto pagar (% del importe, topes)
         ├── loan_repay_distribuir()← cómo repartirlo — lo usa tambien el boton Pagar
         ├── loan_ongoing()         ← prestamos vivos normalizados
