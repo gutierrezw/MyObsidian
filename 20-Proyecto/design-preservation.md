@@ -410,6 +410,27 @@ posición, colocación/ajuste de STOP y errores. Solo se veían `"config cargada
 `self._preservation_logger = self._log_stock` (reutiliza el logger ya wireado en vez de
 registrar uno nuevo).
 
+#### Revertido el 2026-08-24 — el logger compartido volvió a silenciar todo
+
+Reutilizar `Agente.Stock` resolvió el handler faltante pero dejó a Preservation atado al
+nivel de un logger compartido con MarketScreener, DividendStatusScreener y PriceSync. Al
+bajar el ruido de esos agentes poniendo `Agente.Stock` en **ERROR** desde el panel de
+Debugging, Preservation quedó mudo por completo: todo lo que emite es `warning()`/`info()`.
+Diagnóstico del 2026-08-24: el agente había corrido a las 13:49 (confirmado por
+`agents_schedule.json` y `preservation_state.json`) sin dejar una sola línea en el log.
+
+El detalle que lo volvió difícil de ver: existe un logger `Preservation` **sí registrado**
+en [Class_debugging.py:423](../../../MyPython/AppOO/Class_debugging.py#L423) y visible en el
+panel — pero ningún código de Preservation escribía por él, así que subirlo a DEBUG no hacía
+nada.
+
+**Fix definitivo (c2bf559):** `self._preservation_logger = logging.getLogger("Preservation")`
+y migración de los call-sites que seguían en `_log_stock` (incluidos "config cargada" y
+"REVISIÓN", que estaban fuera de `_preservation_run_vehiculo()` y la migración anterior no
+había tocado). Los handlers cuelgan del root y propagan, así que el logger escribe a archivo
+sin `addHandler` propio. Preservation pasa a tener su propio interruptor en el panel —
+patrón `feedback_loggers_por_modulo`.
+
 ### 2. Dos intervalos independientes que pueden confundir al debuggear
 
 El decorador `@wait_rate(intervalo, ...)` sobre `Agente_ManagerPreservation` controla
@@ -418,8 +439,8 @@ El decorador `@wait_rate(intervalo, ...)` sobre `Agente_ManagerPreservation` con
 independiente**, contra `preservation_state.json`:
 
 ```python
-revisiones_dia = pconfig.get("revisiones_dia", 2)   # ← vive en BD, no en archivo
-intervalo_min = 86400 / revisiones_dia               # default: 12h
+revisiones_dia = pconfig.get("revisiones_dia", 2)          # ← vive en BD, no en archivo
+intervalo_min = ((16 - 9) * 3600) / revisiones_dia          # default: 3.5h dentro de la ventana
 ```
 
 Si `elapsed < intervalo_min` (medido contra `_last_run_{vehiculo}` en
@@ -431,6 +452,36 @@ vaciar `preservation_state.json` (borrar las claves `_last_run_Stock`/`_last_run
 **`revisiones_dia` no es un archivo** — es una clave dentro de `sesion.parameters` (JSON)
 en MySQL, bloque `"preservation"`, por vehículo. Se edita desde la pantalla de parámetros
 de la app, no a mano.
+
+### 3. Ventana horaria 9-16h — dónde vive y por qué ahí (2026-08-24)
+
+Con la fórmula vieja (`86400 / revisiones_dia`) el reparto era sobre el día corrido y quedaba
+anclado a la hora de arranque de la app: con `revisiones_dia=2` daban 12h exactas, o sea
+**los mismos dos horarios siempre** (13:49 y 01:49 en la corrida observada) — uno de ellos de
+madrugada, con mercado cerrado y precios stale. Ahora `intervalo_min` reparte sobre la franja
+9-16h y `_preservation_get_config()` no ejecuta fuera de ella.
+
+**Por qué la ventana NO va en el decorador**, aunque `wait_rate` tenga el parámetro `ventana=`
+y el `CLAUDE.md` lo recomiende como regla general: `ventana=` se saltea cuando el agente está
+`_overdue` (atraso > `intervalo × 1.5`). De noche el atraso siempre supera ese umbral para
+cualquier intervalo razonable, así que el rescate terminaría ejecutando la revisión de
+madrugada — justo lo que la ventana intenta evitar.
+
+**A cambio, la guarda interna sí consume el turno del decorador.** Por eso el agente pasó de
+`@wait_rate(43200)` a `@wait_rate(1800)`: con 12h, el turno que caía fuera de ventana se
+quemaba y reiniciaba el reloj, dejando **1 revisión por día en vez de 2** — y con otro
+anclaje de arranque (p. ej. 20:00/08:00) los dos turnos caían fuera y no corría nunca. Con
+30 min el decorador solo ofrece turnos baratos (`read_json_tmp` y vuelve) y el espaciado real
+lo decide `intervalo_min`.
+
+| Capa | Rol |
+|---|---|
+| `@wait_rate(1800)` | ofrece turnos frecuentes, sin ventana |
+| `_preservation_get_config()` | ventana 9-16h + espaciado por `revisiones_dia` |
+
+**Pendiente de decisión:** la ventana está en hora local (UTC-3) y hardcodeada. En horario de
+verano ET equivale a 8:00-15:00 ET — incluye una hora de pre-market y se pierde la última hora
+de rueda. Si se busca rueda real conviene `(11, 17)` local.
 
 ### Lección para próximas sesiones de debugging
 Si el log de Preservation se corta después de "config cargada"/"REVISIÓN" sin avanzar,
