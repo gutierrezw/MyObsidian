@@ -8,6 +8,7 @@ viven en el design de cada uno).
 
 **Ver también:**
 - [[design-preservation]] · [[design-gains-capture]] · [[ref-oportunidades]] — el detalle de cada módulo
+- [[spec-botcrypto]] — estrategia cerrada, fuera de esta doctrina
 - [[design-agente-ia]] — el motor de decisión y su roadmap de fases (lado BUY)
 - [[ref-estrategia]] — el foco del plan: ingresos pasivos + oportunidades de compra/venta
 
@@ -79,7 +80,94 @@ subiendo, no.
 
 ---
 
-## 3. ¿Esto puede vivir como restricciones del plan de inversión?
+## 3. Parámetros reales por vehículo (2026-08-24)
+
+Los tres mandatos no se distinguen solo por el discurso: se distinguen por los números con los que
+corren. **Fuente: `sesion.parameters` de cada vehículo** (vive en BD, no en archivo). Los defaults
+del código solo aplican si falta la clave — hoy no falta ninguna en Stock ni en Crypto.
+
+### 3.1 Preservation — `parameters.preservation`
+
+| Parámetro | Stock | Crypto | Default código | Qué controla |
+|---|---|---|---|---|
+| `roi_minimo` | **0.10** | **0.18** | 0.10 | ROI mínimo del símbolo para entrar a evaluar (no es gatillo de venta) |
+| `correccion_pct` | **0.08** | **0.12** | 0.08 | caída desde el máximo que dispara la protección |
+| `atr_mult` | **2.0** | **2.5** | 2.0 | múltiplo de ATR para el colchón del STOP |
+| `proteccion_base` | 0.40 | 0.40 | 0.50 | fracción de la ganancia que se asegura |
+| `proteccion_qty_pct` | 0.33 | 0.33 | 0.33 | % de la posición que cubre el STOP |
+| `revisiones_dia` | 2 | 2 | 2 | revisiones repartidas dentro de la ventana 9-16h |
+
+Lo que dicen los números: **Crypto está calibrado más laxo en todo lo que mide movimiento** — pide
+casi el doble de ROI para mirar el símbolo (18% vs 10%), tolera una corrección 50% mayor antes de
+actuar (12% vs 8%) y deja un colchón de ATR más ancho (2.5 vs 2.0). Es la calibración correcta para
+un activo más volátil: menos intervención por ruido.
+
+⚠️ **Pero Crypto no corre.** El loop del agente es `for vehiculo in ("Stock",)` — H6, decisión
+2026-08-21: `is_live` dependía de `vehiculo == "Stock"`, así que Crypto simulaba en `[DRY-RUN]` sin
+protección real, y se lo sacó explícitamente en vez de dejarlo simulando en silencio. **Los
+parámetros están, el mandato no.** Es el primer caso concreto de doctrina declarada sin ejecución
+detrás.
+
+Lo compartido entre vehículos (`proteccion_base`, `proteccion_qty_pct`, `revisiones_dia`) no es
+casual: no describe el activo, describe **cuánto está dispuesto a resguardar el usuario**. Ese es
+justamente el tipo de valor que la sección 4 discute mover a `variablesplan`.
+
+### 3.2 GainsCapture — `parameters.gains_capture`
+
+| Parámetro | Stock | Crypto | Qué filtra |
+|---|---|---|---|
+| `min_roi` | 0.20 | 0.20 | filtra **LOTES** — calidad: solo entran lotes maduros |
+| `min_ganancia` | **200 USD** | **300 USD** | filtra **ESCENARIOS** — fricción: la orden debe justificar comisión e impuesto |
+
+Los dos umbrales actúan en capas distintas y esa distinción es del módulo, no del vehículo: por eso
+`min_roi` es igual en ambos. Lo que cambia es la fricción: en Crypto una venta tiene que dejar 300
+USD para valer la pena.
+
+Corre en **Stock y Crypto** (`for vehiculo in ("Stock", "Crypto")`), ambos emitiendo orden real —
+LMT SELL en IB, LIMIT SELL GTC en Binance — siempre previa confirmación `/ok`.
+
+### 3.3 Oportunidades — `parameters.gains_oportunidades`
+
+| Parámetro | Stock | Crypto | |
+|---|---|---|---|
+| `min_roi` | 0.09 | 0.09 | umbral de rutina |
+| `min_ganancia` | 90 USD | 50 USD | |
+
+### 3.4 La doctrina leída en los umbrales
+
+| Umbral | Oportunidades | GainsCapture | Preservation |
+|---|---|---|---|
+| ROI que pide | 9% | 20% | 10% Stock / 18% Crypto — *para evaluar, no para vender* |
+| Ganancia mínima | 90 / 50 USD | 200 / 300 USD | no aplica — no busca ganancia, protege la existente |
+| Qué dispara la acción | el umbral mismo | el umbral mismo | una caída (`correccion_pct`) |
+
+Esto **confirma la doctrina en los números**: Oportunidades es el piso del régimen normal (9%),
+GainsCapture pide más del doble porque el movimiento violento lo justifica, y Preservation es el
+único cuyo disparador **no es un nivel de ganancia sino una caída** — sus umbrales de ROI solo
+deciden a qué símbolos vale la pena vigilar.
+
+### 3.5 Anomalía anotada — sin corregir
+
+`min_ganancia` se mueve en **direcciones opuestas** entre los dos módulos al pasar de Stock a Crypto:
+
+- GainsCapture: 200 → **300** (Crypto exige más)
+- Oportunidades: 90 → **50** (Crypto exige menos)
+
+No hay razón de doctrina que explique el cruce. Puede ser deliberado (montos de posición distintos
+por vehículo) o un valor que quedó de una calibración vieja. **Anotado, no tocado** — cambiar un
+umbral en producción no se hace de costado al escribir un documento.
+
+### 3.6 Lo que no tiene parámetros de venta
+
+- **`agente_ia`** existe solo en Stock (`modo: SUPERVISADO`, `monto_por_trade: 170`, gates de consenso
+  e inst_score). Es el lado **BUY** — ver [[design-agente-ia]]. Crypto no tiene motor de decisión IA.
+- **BotCrypto** no tiene ninguno de los tres bloques. Sus parámetros son de otro tipo
+  (`rsi_buy`, `tp1_pct`, `trail_mult`, `stop_loss_pct`): es una **estrategia cerrada**, no un módulo
+  bajo esta doctrina. Ver [[spec-botcrypto]].
+
+---
+
+## 4. ¿Esto puede vivir como restricciones del plan de inversión?
 
 Pregunta del usuario (2026-08-24). Respuesta corta: **una parte sí, y no es la parte de la
 doctrina.** Hay que separar dos cosas que hoy se confunden:
@@ -114,7 +202,7 @@ verdad, tiene que ser código que corra antes de la decisión — no contexto.
 
 ---
 
-## 4. Cruces entre módulos — declarados, sin resolver
+## 5. Cruces entre módulos — declarados, sin resolver
 
 **Decisión explícita del usuario (2026-08-24): los cruces no se discuten hasta que cada módulo se
 estabilice por separado.** Se listan acá para que nadie los "resuelva" por su cuenta al escribir
@@ -128,12 +216,14 @@ otra cosa:
 
 ---
 
-## 5. Qué falta para que esto sea operativo
+## 6. Qué falta para que esto sea operativo
 
 En orden, sin fechas:
 
 1. Que los tres módulos corran estables por separado — es la condición que puso el usuario.
-2. Resolver los cruces de la sección 4 (empezando por H5, que ya bloquea #53).
+2. Resolver los cruces de la sección 5 (empezando por H5, que ya bloquea #53).
 3. Confirmar o corregir la tabla de grados de autonomía de la sección 2.
-4. Migrar el ancho de `variablesplan` y decidir qué límites del plan se vuelven gate ejecutable.
-5. Recién ahí, conectar con Fase 3/4 de [[design-agente-ia]].
+4. Migrar el ancho de `variablesplan` y decidir qué límites del plan se vuelven gate ejecutable
+   (sección 4), y resolver la asimetría de `min_ganancia` de la sección 3.5.
+5. Devolverle el mandato a Crypto en Preservation (H6) o declarar por escrito que no lo tiene.
+6. Recién ahí, conectar con Fase 3/4 de [[design-agente-ia]].
