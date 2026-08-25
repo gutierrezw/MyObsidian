@@ -243,6 +243,8 @@ distribución de ROI y ganancia por orden y cuántas habrían pasado cada umbral
 python AppTest/run_booktrading_roi.py 6m ytd
 ```
 
+Desde 2026-08-25 la misma medición corre sola: `Agente_RoiVentas` (`Class_AgentManager.py`, cada 30 días, ventana fija de 6 meses) llama a `PlanInversion.roi_ordenes_venta(account, meses, umbrales)` para Stock y Crypto, con los umbrales vigentes de `DataHub.gains_config()`, y deja una línea por vehículo en el log `Agente.Infra`. El script sigue existiendo para consultas puntuales por otra ventana; el agente es la serie de tiempo. **Qué se hace con esa serie todavía no está definido** — se deja acumulando primero.
+
 De acá en adelante **ningún umbral de venta se mueve sin correrlo primero sobre la ventana
 vigente**. Y a medida que Oportunidades, GainsCapture y Preservation acumulen ventas propias, la
 misma medición pasa de describir lo que hizo el usuario a describir lo que hicieron los módulos —

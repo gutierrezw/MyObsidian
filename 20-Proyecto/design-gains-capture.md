@@ -48,6 +48,15 @@ su movimiento, no protegiéndose de él.
 
 **Aclaración:** `S` es "evitar entrada" (no comprar nuevas posiciones), pero si ya está en cartera en ganancia, Preservation aplica igual. La valuación no cambia que necesites proteger lo ganado.
 
+**Falla resuelta 2026-08-25 — categorías degradadas.** Se observó a BTG (paga dividendo, `S`)
+entrando al universo de GainsCapture. El gate `categ != "N"` estaba bien: el problema era el dato.
+Los dos caminos que escriben `categoriaActivo` — `dividends_en_market_stock()` (en cartera) y
+`sync_dividend_status_screener()` (ex-cartera) — la reescribían en cada corrida y la bajaban a `'N'`
+cuando la descarga de dividendos de Yahoo venía vacía. Una descarga vacía ya no degrada la categoría:
+solo se escribe si hay dato real, y `'N'` solo se asigna a símbolos que aún no tienen ninguna.
+`trailingAnnualDividendRate == 0` sí escribe `'N'` — eso es un hallazgo, no un fallo de descarga.
+Detalle en `CLAUDE.md` § "Columnas con semántica propia".
+
 ---
 
 ## Config en `sesion.parameters` — CÓDIGO REAL
