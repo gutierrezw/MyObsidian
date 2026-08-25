@@ -130,32 +130,53 @@ LMT SELL en IB, LIMIT SELL GTC en Binance — siempre previa confirmación `/ok`
 
 | Parámetro | Stock | Crypto | |
 |---|---|---|---|
-| `min_roi` | 0.09 | 0.09 | umbral de rutina |
-| `min_ganancia` | 90 USD | 50 USD | |
+| `min_roi` | 0.09 | **0.20** | umbral de rutina |
+| `min_ganancia` | 90 USD | **150 USD** | |
+
+Crypto recalibrado por el usuario el 2026-08-25 (antes: `min_roi` 0.09, `min_ganancia` 50). Ver
+3.5 para lo que cierra y lo que abre ese cambio.
 
 ### 3.4 La doctrina leída en los umbrales
 
 | Umbral | Oportunidades | GainsCapture | Preservation |
 |---|---|---|---|
-| ROI que pide | 9% | 20% | 10% Stock / 18% Crypto — *para evaluar, no para vender* |
-| Ganancia mínima | 90 / 50 USD | 200 / 300 USD | no aplica — no busca ganancia, protege la existente |
+| ROI que pide | 9% Stock / **20% Crypto** | 20% | 10% Stock / 18% Crypto — *para evaluar, no para vender* |
+| Ganancia mínima | 90 / **150** USD | 200 / 300 USD | no aplica — no busca ganancia, protege la existente |
 | Qué dispara la acción | el umbral mismo | el umbral mismo | una caída (`correccion_pct`) |
 
-Esto **confirma la doctrina en los números**: Oportunidades es el piso del régimen normal (9%),
-GainsCapture pide más del doble porque el movimiento violento lo justifica, y Preservation es el
-único cuyo disparador **no es un nivel de ganancia sino una caída** — sus umbrales de ROI solo
-deciden a qué símbolos vale la pena vigilar.
+Esto **confirma la doctrina en los números** para Stock: Oportunidades es el piso del régimen
+normal (9%), GainsCapture pide más del doble porque el movimiento violento lo justifica, y
+Preservation es el único cuyo disparador **no es un nivel de ganancia sino una caída** — sus
+umbrales de ROI solo deciden a qué símbolos vale la pena vigilar.
 
-### 3.5 Anomalía anotada — sin corregir
+En Crypto ese escalón de ROI ya no existe (ver 3.5).
 
-`min_ganancia` se mueve en **direcciones opuestas** entre los dos módulos al pasar de Stock a Crypto:
+### 3.5 La asimetría de `min_ganancia` — cerrada 2026-08-25
 
-- GainsCapture: 200 → **300** (Crypto exige más)
-- Oportunidades: 90 → **50** (Crypto exige menos)
+Estaba anotado que `min_ganancia` se movía en **direcciones opuestas** al pasar de Stock a Crypto:
+GainsCapture 200 → 300 (Crypto exige más) pero Oportunidades 90 → 50 (Crypto exige menos). Sin
+razón de doctrina que explicara el cruce.
 
-No hay razón de doctrina que explique el cruce. Puede ser deliberado (montos de posición distintos
-por vehículo) o un valor que quedó de una calibración vieja. **Anotado, no tocado** — cambiar un
-umbral en producción no se hace de costado al escribir un documento.
+**Resuelto por el usuario**: Crypto/Oportunidades pasó de 50 a **150 USD**. Ahora los dos módulos
+apuntan en el mismo sentido — en Crypto una venta tiene que dejar más que en Stock, sea cual sea el
+módulo que la proponga. Coherente con el tamaño de posición y la fricción del vehículo.
+
+#### Lo que el mismo cambio abre — en Crypto
+
+En la misma edición `min_roi` de Oportunidades pasó de 0.09 a **0.20**, que es exactamente el
+`min_roi` de GainsCapture en Crypto. Las dos capas piden hoy el mismo ROI y lo único que las separa
+es la ganancia mínima (150 vs 300).
+
+El escalón que en Stock distingue los mandatos — *rutina pide poco, movimiento violento pide el
+doble* — **en Crypto desaparece**. Puede ser deliberado: en un activo que se mueve 12% sin que eso
+sea noticia, un 9% no es una oportunidad, es ruido, y el piso de rutina razonable ya es 20%. Bajo
+esa lectura lo que separa los mandatos en Crypto no es el ROI sino el tamaño del movimiento que los
+convoca, y eso no está expresado en ningún parámetro.
+
+**Sin resolver:** si el criterio de reparto en Crypto ya no es el ROI, hay que decir cuál es. Hoy
+un símbolo con ROI 20% y ganancia 300+ es elegible por los dos módulos a la vez — el cruce
+Oportunidades/GainsCapture de la sección 5, que estaba listado como teórico, en Crypto ya tiene
+condiciones concretas para ocurrir.
 
 ### 3.6 Lo que no tiene parámetros de venta
 
@@ -224,6 +245,7 @@ En orden, sin fechas:
 2. Resolver los cruces de la sección 5 (empezando por H5, que ya bloquea #53).
 3. Confirmar o corregir la tabla de grados de autonomía de la sección 2.
 4. Migrar el ancho de `variablesplan` y decidir qué límites del plan se vuelven gate ejecutable
-   (sección 4), y resolver la asimetría de `min_ganancia` de la sección 3.5.
+   (sección 4), y declarar cuál es el criterio de reparto Oportunidades/GainsCapture en Crypto
+   ahora que el ROI ya no los separa (sección 3.5).
 5. Devolverle el mandato a Crypto en Preservation (H6) o declarar por escrito que no lo tiene.
 6. Recién ahí, conectar con Fase 3/4 de [[design-agente-ia]].
