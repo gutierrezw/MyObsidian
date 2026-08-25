@@ -177,10 +177,50 @@ base propia del vehículo: 20% es el piso de rutina de Crypto, 30% el umbral del
 | piso de rutina (Oportunidades) | 9% · 90 USD | 20% · 150 USD |
 | movimiento violento (GainsCapture) | 20% · 200 USD | 30% · 300 USD |
 
-Queda una diferencia sin fundamentar, anotada y no tocada: el escalón entre ambos módulos es ×2.2
-en Stock y ×1.5 en Crypto. El orden es correcto en los dos casos; nadie decidió que en Crypto los
-mandatos deban quedar más cerca entre sí. Es candidato a revisar cuando haya ventas reales de
-Crypto para medir, no antes.
+Queda una diferencia sin fundamentar: el escalón entre ambos módulos es ×2.2 en Stock y ×1.5 en
+Crypto. El orden es correcto en los dos casos; nadie decidió que en Crypto los mandatos deban
+quedar más cerca entre sí. Anotado como pendiente de decisión y medido contra `booktrading` el
+mismo día (abajo).
+
+#### Medición contra `booktrading` — 2026-08-25
+
+Fuente: filas `codigo='C'` (cierres con `gprealizadas`), agrupadas por símbolo + día para que la
+unidad sea la **orden** —que es lo que mide `min_ganancia`— y no el lote suelto. ROI de la orden =
+`SUM(gprealizadas) / (SUM(producto) - SUM(gprealizadas))`. Solo cuenta el vehículo propio: Stock
+`U4214563`, Crypto `B0000001`. BotCrypto queda afuera, no lo tocan estos módulos.
+
+| | Stock (276 órdenes, 2020-07 → 2026-08) | Crypto (31 órdenes, 2024-01 → 2026-08) |
+|---|---|---|
+| ROI de la orden p25 / p50 / p75 | 3% / 12% / 30% | 27% / 53% / 122% |
+| ganancia p25 / p50 / p75 | 4 / 37 / 106 USD | 11 / 29 / 71 USD |
+| ganancia máxima registrada | 389 USD | 518 USD |
+| pasan `min_roi` de Oportunidades | 159 | 25 |
+| …y además `min_ganancia` | **86** (31%) | **3** (10%) |
+| pasan `min_roi` de GainsCapture | 103 | 22 |
+| …y además `min_ganancia` | **15** (5.4%) | **1** (3.2%) |
+| órdenes en la franja solo-Oportunidades | 56 | 3 |
+
+**Lo que muestra el dato, y no era lo que estábamos mirando.** El umbral que decide no es `min_roi`
+sino `min_ganancia`. En Crypto, 22 órdenes históricas superaron el 30% de ROI y **una sola** superó
+los 300 USD: el filtro de ROI deja pasar casi todo y el de ganancia corta casi todo. Con los valores
+de hoy, GainsCapture sobre Crypto habría disparado una vez en dos años y medio.
+
+**La amplitud del escalón de ROI resulta ser un problema menor.** La franja donde solo Oportunidades
+tiene mandato contiene 56 órdenes en Stock y 3 en Crypto. En Crypto la distribución de ROI es de
+cola gruesa —mediana 53%— así que casi nada cae entre 20% y 30%: ensanchar o angostar esa franja
+mueve unidades, no decenas. **El escalón queda como está.**
+
+**Lo que sí queda abierto** es `min_ganancia` en los dos vehículos, por el mismo motivo en cada uno:
+en Crypto 300 USD está por encima de 30 de las 31 órdenes históricas; en Stock 200 USD deja 15 de
+276. Es el mismo síntoma que ya estaba anotado en BACKLOG #53 ("`min_ganancia` 200 sobre la clase
+deja solo escenario 100%"), ahora con la distribución que lo respalda.
+
+**Cómo leer esto con cuidado.** Estas son ventas que el usuario ejecutó, no propuestas que los
+módulos hayan generado: dicen **el tamaño típico de la operación**, que es exactamente lo relevante
+para calibrar un umbral en dólares, pero no dicen si la venta fue buena. Y en Crypto el tamaño de
+posición viene creciendo, así que la muestra vieja pesa hacia abajo.
+
+Script de la medición (solo lectura, reproducible): `AppTest/run_booktrading_roi.py`.
 
 ### 3.6 Lo que no tiene parámetros de venta
 
@@ -250,6 +290,9 @@ En orden, sin fechas:
 3. Confirmar o corregir la tabla de grados de autonomía de la sección 2.
 4. Migrar el ancho de `variablesplan` y decidir qué límites del plan se vuelven gate ejecutable
    (sección 4). El reparto Oportunidades/GainsCapture en Crypto quedó resuelto por umbrales
-   (sección 3.5); pendiente solo revisar la amplitud del escalón cuando haya ventas reales.
-5. Devolverle el mandato a Crypto en Preservation (H6) o declarar por escrito que no lo tiene.
-6. Recién ahí, conectar con Fase 3/4 de [[design-agente-ia]].
+   (sección 3.5); la amplitud del escalón de ROI se midió contra `booktrading` y se deja como está.
+5. **Calibrar `min_ganancia`** en los dos vehículos — es el umbral que realmente decide, no
+   `min_roi`. Hoy 300 USD en Crypto/GainsCapture está por encima de 30 de las 31 órdenes históricas
+   y 200 USD en Stock deja 15 de 276 (sección 3.5, medición).
+6. Devolverle el mandato a Crypto en Preservation (H6) o declarar por escrito que no lo tiene.
+7. Recién ahí, conectar con Fase 3/4 de [[design-agente-ia]].
