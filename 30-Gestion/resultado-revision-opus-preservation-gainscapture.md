@@ -24,14 +24,13 @@ desde la que se decide subir a producción. Lo cerrado no se borró — está ab
 | # | Hallazgo | Severidad | Dónde | Qué falta |
 |---|----------|-----------|-------|-----------|
 | H5 | STOP (Preservation) + LMT SELL (GainsCapture) pueden coexistir sobre el mismo símbolo sin vínculo OCA ni consulta cruzada de órdenes vivas — hasta 133% de las acciones en ganancia comprometidas a la vez | 🔴 **Bloqueante de #53** | Estados en dos JSON independientes (`preservation_state.json`, `gains_capture_state.json`), sin lock ni reconciliación | Gate cruzado por símbolo: antes de proponer, sumar `qty_propuesta + qty_comprometida` y exigir `<= position`. **Ya no depende de H1** — el tope duro `vender_qty <= position` con ganancia prorrateada existe desde el 2026-08-22, así que hay contra qué comparar |
-| H7 | `PRECIO_MINIMO = 50.0` hardcodeado excluye justo el perfil volátil que GainsCapture ataca — las posiciones más riesgosas quedan con venta agresiva pero sin protección | 🟠 Advertencia (#76) | `Class_AgentManager.py:1061` | Decidir el valor real y si se mueve a `gains_config` por vehículo, en vez de un piso único para todos. El `$0.001` de Crypto que documenta el punto (4) de #76 nunca se usó |
 | H8 | Fallback silencioso `sma_base = last` cuando falla SMA20 — en tendencia alcista da un stop más cercano al precio (fail-open), y el ratchet lo deja fijado permanentemente aunque la SMA vuelva | 🟠 Advertencia (#76) | `Class_AgentManager.py:1042-1047` | Pasar a fail-closed: si no hay SMA y ya existe stop, no tocar nada y alertar; si no hay SMA y no hay stop, no operar ese ciclo |
 
 ### Condición para PROD
 
 - **GainsCapture (#53)** — bloqueado solo por **H5**. El resto de sus hallazgos está cerrado.
-- **Preservation (#76), Stock únicamente** — sin bloqueantes. H7 y H8 son advertencias: se puede
-  evaluar en producción con ellas abiertas, pero conviene cerrarlas antes de subir el volumen.
+- **Preservation (#76), Stock únicamente** — sin bloqueantes. H8 es la única advertencia abierta:
+  se puede evaluar en producción con ella, pero conviene cerrarla antes de subir el volumen.
   Crypto quedó fuera del loop por H6 y no vuelve hasta que Stock esté sólido.
 
 ---
@@ -42,6 +41,7 @@ Se conservan porque explican por qué el código es como es hoy. No reabrir sin 
 
 | # | Hallazgo | Cierre |
 |---|----------|--------|
+| H7 | `PRECIO_MINIMO = 50.0` hardcodeado excluye justo el perfil volátil que GainsCapture ataca | 🟢 **Cerrado 2026-08-26 — la condición se eliminó.** No se reemplazó por un piso configurable: Preservation ya tiene un filtro económico configurado y por vehículo, `unrealizedpnl < sesion.gainInversion` (Stock $70, Crypto $20), que mide dólares de ganancia en juego en vez del precio unitario de la acción. El piso de $50 era un proxy peor del mismo criterio — ignoraba cantidad y ganancia, y dejaba sin proteger justo el perfil de precio bajo que GainsCapture sí ataca. El `$0.001` de Crypto del punto (4) de #76 nunca se usó y ya no hace falta |
 | H1 | `maximiza_sell_lotes()` reparte por conteo de lotes, no por cantidad de acciones | 🟢 **Reencuadrado 2026-08-21 — no era un bug.** Confirmado con el usuario, dueño del diseño original: "vender 25%/33%/100% de los lotes en ganancia" siempre fue por CONTEO de lotes. Que 25%/33% sean inalcanzables con pocos lotes es matemática, no un error. Fix aplicado en `Class_DashBot.py`: `escenarios_disponibles` según `len(list_gain)` (25% pide ≥4 lotes, 33% pide ≥3) — a Claude solo se le ofrecen los escenarios alcanzables. Validado contra cartera real: 14/26 símbolos con 1-2 lotes reciben solo `["100%"]`. **Ratificado 2026-08-26** |
 | H2 | `if vender_qty <= 0: continue` sin log — la decisión de Claude se evaporaba sin rastro, así que "semanas sin incidentes" no probaban nada | ✅ 2026-08-21 — WARNING + fila `CANCELLED` en `symbol_decision_history`. La query de calibración previa confirmó el diagnóstico: la tabla tenía 1 sola fila en total |
 | H3 | Ratchet del stop roto por round-trip del estado: se persistía el valor capado aunque no se tocara la orden, y el JSON podía quedar por debajo del stop real en IB | ✅ 2026-08-21 — `stop_persistido` separado de `stop_final`. Solo se persiste el capado si la orden se modificó con `order_id` confirmado; sin confirmación se persiste `stop_anterior`. **Queda fuera de alcance** (no es este hallazgo): reconciliar `preservation_state.json` contra órdenes vivas de IB al inicio de cada ciclo |
@@ -68,7 +68,7 @@ Se conservan porque explican por qué el código es como es hoy. No reabrir sin 
 ## Ítems de BACKLOG afectados
 
 - [[BACKLOG]] #53 (`Agente_GainsCapture`) — bloqueado **solo por H5**.
-- [[BACKLOG]] #76 (`Agente_ManagerPreservation` Fase 1, Stock) — sin bloqueantes; H7 y H8 abiertos
+- [[BACKLOG]] #76 (`Agente_ManagerPreservation` Fase 1, Stock) — sin bloqueantes; queda H8 abierto
   como advertencias.
 - [[BACKLOG]] #81 (Capa 4 AUTONOMO) — ya no cruza por H9: el switch compartido fue la decisión
   deliberada, no un defecto.
