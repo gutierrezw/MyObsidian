@@ -362,6 +362,24 @@ bloque `gains_capture` de BD es ignorado.
    `add_alert()`: encolar una alerta con `hash_id` **cancela** cualquier borrado pendiente de ese
    hash, porque el mensaje nuevo ya reemplaza al viejo.
 
+   **El caso "expira y no viene otra" no corría (corregido 2026-08-26).** El chequeo de
+   vencimiento vivía *dentro* del loop de candidatos, después de cinco `continue`: categoría
+   `!= 'N'`, sin lotes, ningún lote supera `min_roi`, ningún escenario supera `min_ganancia`,
+   vehículo sin trama. O sea que una propuesta **solo expiraba mientras su símbolo seguía siendo
+   candidato hoy** — y dejar de calificar es justamente la condición que describe ese bullet.
+   Al dejar de serlo, la propuesta se congelaba en `pendiente_autorizacion` con los botones vivos
+   en el chat, sin expiración ni `del_alert`, indefinidamente. Cinco casos reales encontrados el
+   26/08: BTG (2 días, `qty=167` contra una posición de 63) al restaurársele la categoría a `'S'`,
+   y BTCUSDT/SOLUSDT/ADAUSDT/BNBUSDT (3 días) al pasarse el spike de RSI 80-85 que las originó.
+
+   Ahora el barrido es `_gains_capture_expirar_pendientes()` y corre **antes** del loop, sobre
+   `gains_capture_state` completo: no filtra por vehículo (el vencimiento es temporal, no depende
+   de quién lo detecte) y trata un pendiente sin `pendiente_ts` como vencido — no hay forma de
+   validarlo y sus botones son exactamente el caso huérfano. El TTL pasó a la constante de módulo
+   `GC_PENDIENTE_TTL`. Adentro del loop queda solo el `continue`: lo que sigue pendiente ahí está
+   vigente. Como `read_json_tmp` carga el estado al arranque, cualquier pendiente heredado de una
+   corrida anterior se vence en la primera pasada.
+
 **RSI en la propuesta (2026-08-23).** La línea `RSI d/w` usa la misma escala de color que los
 mensajes de oportunidades (`💚 ≥70 · 🟢 ≥60 · 🟡 ≥50 · 🟠 ≥40 · 🔴 <40`), vía `_rsi_texto()`. En una
 venta el RSI alto juega a favor, así que el verde acompaña la decisión. Si no hay dato técnico la
