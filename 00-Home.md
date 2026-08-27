@@ -68,6 +68,7 @@
 | [[10-Memoria/ref-arquitectura-claude-github\|Arquitectura Claude ↔ GitHub]] | Dos caminos de acceso (Code local vs Cowork público), bug conector GitHub, config MCP |
 | [[20-Proyecto/design-report-center\|Report Center]] | Motor genérico reutilizable: tabla histórica + página `/reports/:tipo` + Cloudflare Access — base para cualquier reporte futuro |
 | [[20-Proyecto/design-schema-monitor\|Schema Monitor (Fase 2)]] | Primer consumidor de Report Center — cron de salud de schema MySQL, evolución de hallazgos/correcciones |
+| `AppOO/Scripts/README_time_watchdog.md` (repo de código, no del vault) | Sincronización de reloj para trading — deriva de 690 ppm que invalidaba firmas de Binance (`-1021`). Dos capas: endurecimiento de W32Time + tarea `AppOO-TimeWatchdog`, y `BinanceTime` en `Class_ApiBinnace.py`. **En observación**, backlog #84 |
 
 ### Finanzas y usuario
 | Doc | Descripción |
