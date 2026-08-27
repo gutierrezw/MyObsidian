@@ -491,6 +491,78 @@ frecuente confundir "no tocó" con "está trabado".
 
 ---
 
+## Umbrales — por qué NO se pueden comparar con GainsCapture (2026-08-26)
+
+**Decisión: los umbrales quedan como están.** Se evaluó subir `gainInversion` a $150 en ambos
+vehículos para que quedara "justo debajo" de los $200/$300 de GainsCapture. Se descartó.
+
+| | Preservation | GainsCapture |
+|---|---|---|
+| Stock | `roi_minimo` 10% · `gainInversion` **$70** | `min_roi` 20% · `min_ganancia` $200 |
+| Crypto | `roi_minimo` 18% · `gainInversion` **$20** | `min_roi` 30% · `min_ganancia` $300 |
+
+`roi_minimo` sale de `sesion.parameters.preservation` (JSON). `gainInversion` es una **columna de la
+tabla `sesion`**, no una key del JSON — por eso `_preservation_run_vehiculo` la lee vía
+`BDsystem.get_sesion_by_vehiculo()`. Los defaults del código (`100`/`20`) no se usan nunca.
+
+### Los dos "$" no miden lo mismo y no pueden alinearse
+
+`min_ganancia` (GainsCapture) es la ganancia de **la orden**: si vende, se realiza. `gainInversion`
+(Preservation) es el `unrealizedpnl` de **la posición entera**, y el STOP toca solo el 33% de los
+lotes en ganancia — y puede no ejecutarse nunca.
+
+Descomposición sobre NOMD (46 un. en ganancia, `last` 12.41, 4 lotes entre 9.60 y 11.11):
+
+| | | |
+|---|---|---|
+| GainsCapture clase 33% | 16 un × (12.41 − 9.60) | **$44.96** |
+| 1) qty = 33% de **acciones**, no de lotes | 46 × 0.33 = 15 un | $42.15 · −$2.81 |
+| 2) costo **mezclado** 10.19, no el mejor lote 9.60 | 15 × (12.41 − 10.19) | $33.36 · −$8.79 |
+| 3) vende al **STOP** 11.42, no al mercado 12.41 | 15 × (11.42 − 10.19) | **$18.47** · −$14.89 |
+
+El punto 3 es irreducible: un STOP vende `correccion_pct` por debajo del precio, siempre — es el
+costo del seguro, no un parámetro mal puesto. Sobre el mismo símbolo y el mismo día Preservation
+captura ~60% menos que GainsCapture. **Cualquier umbral que los ponga en la misma escala parte de
+una equivalencia falsa.**
+
+El punto 1 merece atención aparte: "33%" significa cosas distintas en cada módulo — 33% de **lotes**
+en GainsCapture (elige el mejor grupo), 33% de **acciones** en Preservation (barre todos los
+ganadores mezclados). Que en NOMD den 16 y 15 es casualidad del reparto.
+
+### Los números empíricos que cerraron la discusión
+
+Cartera Stock del 2026-08-26, 40 posiciones (29 con lotes en ganancia):
+
+```
+gate actual   roi_pos ≥10% y upnl ≥ $70   →  0 candidatos
+gate actual   roi_pos ≥10% y upnl ≥ $150  →  0
+sobre lotes   roi_lot ≥10% y gain ≥ $70   →  1   (NOMD)
+sobre lotes   roi_lot ≥10% y gain ≥ $150  →  0
+protegido real ≥ $30                      →  0   (máximo de la cartera: NOMD $18.19)
+```
+
+`upnl` máximo de toda la cartera: Stock **$81.11**, Crypto **$104.17**. **$150 está por encima de la
+mejor posición de los dos vehículos** — no dispararía "poco", no podría disparar. Con $70 ya dispara
+cero: `preservation_state.json` no tiene ni un símbolo desde que el agente corre (2026-08-03).
+
+El candidato más cercano es BTG: ROI 22.7%, `unrealizedpnl` $67.27 — lo rechaza el gate por $2.73.
+
+### Hallazgos abiertos que salieron de este análisis
+
+1. **El gate mide la posición, el STOP actúa sobre los lotes.** `roi = unrealizedpnl / costobase`
+   diluye con los lotes perdedores. Casos reales: TLRY (posición −69.1%) tiene lotes al **+16.4%**;
+   CTRM (−38.2%) al **+13.4%**; NNDM (−26.2%) al **+11.2%**. Preservation no los ve nunca, y son
+   justo donde la única ganancia que queda vale protegerse. Medir `roi_lot`/`gain_lot` alinearía el
+   gate con lo que el módulo hace. **No implementado — decisión pendiente.**
+2. **`base_limit` es un parámetro muerto.** `base_limit = unrealizedpnl * proteccion_base` (0.40) se
+   pasa a `DataHub.preservation_calc_qty()`, que lo ignora — la qty sale solo de `pct`. O sea
+   `proteccion_base` no afecta la cantidad en nada; solo viaja al contexto de Claude y al
+   `json_audit_log`, donde se escribe como `"ganancia_protegida_usd"`. Ese campo del audit no es la
+   ganancia protegida: en NOMD diría $32 cuando lo real son $18, y en la mayoría de las posiciones
+   sería positivo cuando lo real es negativo. **No corregido.**
+
+---
+
 ## Pendientes / preguntas abiertas
 
 - [ ] ¿Nueva key `ClaudeAPIP` en tabla sesion o reusar `ClaudeAPIC`?
