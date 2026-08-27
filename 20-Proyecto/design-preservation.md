@@ -619,7 +619,9 @@ Antes de tocar el umbral en una sesión futura, releer este párrafo.
 
 ## Pendientes / preguntas abiertas
 
-- [ ] ¿Nueva key `ClaudeAPIP` en tabla sesion o reusar `ClaudeAPIC`?
-- [ ] ¿Cómo obtener rsi_d/macd desde booktrading.indicadores en tiempo real? (el campo se graba al momento de la transacción, puede estar desactualizado)
-- [ ] ¿El `Agente_SyncOrders` ya maneja órdenes STOP de preservation o solo BUY/SELL?
-- [ ] Definir qué hacer cuando Claude dice "no activar" pero ROI supera 10% → ¿reglas fijas igual?
+- [x] **`ClaudeAPIP`** — resuelto: key propia, `BDsystem.get_sesion_by_vehiculo("ClaudeAPIP")` (`Class_AgentManager.py:979`).
+- [x] **Claude dice "no activar" con ROI > 10%** — resuelto por diseño: las reglas fijas son el piso.
+      Claude solo puede **subir** el stop (`stop_final = max(stop_final, stop_claude)`), nunca cancelarlo.
+- [ ] rsi_d/macd en tiempo real desde `booktrading.indicadores` — el campo se graba al momento de la
+      transacción y puede estar desactualizado.
+- [ ] ¿`Agente_SyncOrders` maneja órdenes STOP o solo BUY/SELL?

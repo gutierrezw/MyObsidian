@@ -21,16 +21,16 @@ desde la que se decide subir a producción. Lo cerrado no se borró — está ab
 
 ## Pendiente
 
+Un solo hallazgo abierto. Todo lo demás vive en "Cerrados" y no se reabre sin motivo nuevo.
+
 | # | Hallazgo | Severidad | Dónde | Qué falta |
 |---|----------|-----------|-------|-----------|
 | H5 | STOP (Preservation) + LMT SELL (GainsCapture) pueden coexistir sobre el mismo símbolo sin vínculo OCA ni consulta cruzada de órdenes vivas — hasta 133% de las acciones en ganancia comprometidas a la vez | 🔴 **Bloqueante de #53** | Estados en dos JSON independientes (`preservation_state.json`, `gains_capture_state.json`), sin lock ni reconciliación | Gate cruzado por símbolo: antes de proponer, sumar `qty_propuesta + qty_comprometida` y exigir `<= position`. **Ya no depende de H1** — el tope duro `vender_qty <= position` con ganancia prorrateada existe desde el 2026-08-22, así que hay contra qué comparar |
-| H8 | Fallback silencioso `sma_base = last` cuando falla SMA20 — en tendencia alcista da un stop más cercano al precio (fail-open), y el ratchet lo deja fijado permanentemente aunque la SMA vuelva | 🟠 Advertencia (#76) | `Class_AgentManager.py:1042-1047` | Pasar a fail-closed: si no hay SMA y ya existe stop, no tocar nada y alertar; si no hay SMA y no hay stop, no operar ese ciclo |
 
 ### Condición para PROD
 
-- **GainsCapture (#53)** — bloqueado solo por **H5**. El resto de sus hallazgos está cerrado.
-- **Preservation (#76), Stock únicamente** — sin bloqueantes. H8 es la única advertencia abierta:
-  se puede evaluar en producción con ella, pero conviene cerrarla antes de subir el volumen.
+- **GainsCapture (#53)** — bloqueado solo por **H5**, el único hallazgo abierto de toda la revisión. El resto está cerrado.
+- **Preservation (#76), Stock únicamente** — sin bloqueantes ni advertencias abiertas.
   Crypto quedó fuera del loop por H6 y no vuelve hasta que Stock esté sólido.
 
 ---
@@ -41,6 +41,7 @@ Se conservan porque explican por qué el código es como es hoy. No reabrir sin 
 
 | # | Hallazgo | Cierre |
 |---|----------|--------|
+| H8 | Fallback silencioso `sma_base = last` cuando falla SMA20 — fail-open, y el ratchet lo deja fijado permanentemente | 🟢 **Cerrado 2026-08-26 por evidencia — el código NO cambió.** El fallback sigue tal cual en `Class_AgentManager.py:1066-1071`. Se cerró porque el caso nunca ocurrió: 0 apariciones de `SMA20 no disponible` en el log, y la ventana en que puede darse es estrecha (el ATR pide 14 velas y corta antes; la SMA pide 20, así que solo falla con 14-19 filas en cache). Además el ratchet que cementaba el fallback nunca tuvo qué cementar: Preservation no colocó un solo stop desde el 2026-08-03. **Si alguna vez aparece esa línea en el log, reabrir** — el fix diseñado es pasar a fail-closed (si hay stop, no tocarlo y alertar; si no hay, saltar el ciclo) |
 | H7 | `PRECIO_MINIMO = 50.0` hardcodeado excluye justo el perfil volátil que GainsCapture ataca | 🟢 **Cerrado 2026-08-26 — la condición se eliminó.** No se reemplazó por un piso configurable: Preservation ya tiene un filtro económico configurado y por vehículo, `unrealizedpnl < sesion.gainInversion` (Stock $70, Crypto $20), que mide dólares de ganancia en juego en vez del precio unitario de la acción. El piso de $50 era un proxy peor del mismo criterio — ignoraba cantidad y ganancia, y dejaba sin proteger justo el perfil de precio bajo que GainsCapture sí ataca. El `$0.001` de Crypto del punto (4) de #76 nunca se usó y ya no hace falta |
 | H1 | `maximiza_sell_lotes()` reparte por conteo de lotes, no por cantidad de acciones | 🟢 **Reencuadrado 2026-08-21 — no era un bug.** Confirmado con el usuario, dueño del diseño original: "vender 25%/33%/100% de los lotes en ganancia" siempre fue por CONTEO de lotes. Que 25%/33% sean inalcanzables con pocos lotes es matemática, no un error. Fix aplicado en `Class_DashBot.py`: `escenarios_disponibles` según `len(list_gain)` (25% pide ≥4 lotes, 33% pide ≥3) — a Claude solo se le ofrecen los escenarios alcanzables. Validado contra cartera real: 14/26 símbolos con 1-2 lotes reciben solo `["100%"]`. **Ratificado 2026-08-26** |
 | H2 | `if vender_qty <= 0: continue` sin log — la decisión de Claude se evaporaba sin rastro, así que "semanas sin incidentes" no probaban nada | ✅ 2026-08-21 — WARNING + fila `CANCELLED` en `symbol_decision_history`. La query de calibración previa confirmó el diagnóstico: la tabla tenía 1 sola fila en total |
@@ -68,7 +69,6 @@ Se conservan porque explican por qué el código es como es hoy. No reabrir sin 
 ## Ítems de BACKLOG afectados
 
 - [[BACKLOG]] #53 (`Agente_GainsCapture`) — bloqueado **solo por H5**.
-- [[BACKLOG]] #76 (`Agente_ManagerPreservation` Fase 1, Stock) — sin bloqueantes; queda H8 abierto
-  como advertencias.
+- [[BACKLOG]] #76 (`Agente_ManagerPreservation` Fase 1, Stock) — sin bloqueantes ni advertencias.
 - [[BACKLOG]] #81 (Capa 4 AUTONOMO) — ya no cruza por H9: el switch compartido fue la decisión
   deliberada, no un defecto.
