@@ -604,7 +604,16 @@ Consecuencia a tener presente al tocar la columna: **afloja los dos gates a la v
 **Efecto medido (Stock, con el piso aplicado):** desaparecen todos los negativos —
 NOMD $18.05→$28.77, SWK −$9.68→$8.06, PFE −$26.28→$4.20, VALE −$9.67→$7.77, CTRM $5.79→$11.69.
 Máximo de la cartera: NOMD $28.77, BTG $19.64. Con `gainInversion = 70` el gate nuevo rechaza
-todo; el corte real está en $20-25. Queda pendiente decidir el valor.
+todo; el corte real está en $20-25.
+
+**Decisión 2026-08-27: el parámetro se queda en 70.** Que hoy no dispare ninguna orden no es un
+defecto a corregir bajando el umbral. El umbral no persigue a la cartera: la cartera lo alcanza a
+medida que las posiciones maduran — varias ya están en tendencia alcista en temporalidad semanal y
+anual. Bajarlo a $25 para "que funcione" pondría el módulo a proteger ganancias que no vale la pena
+defender, y de paso aflojaría también el gate #2 sobre el `unrealizedpnl` de la posición.
+
+**Que Preservation lleve semanas sin emitir una orden es el comportamiento esperado, no un bug.**
+Antes de tocar el umbral en una sesión futura, releer este párrafo.
 
 ---
 
