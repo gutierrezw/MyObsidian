@@ -547,19 +547,64 @@ cero: `preservation_state.json` no tiene ni un símbolo desde que el agente corr
 
 El candidato más cercano es BTG: ROI 22.7%, `unrealizedpnl` $67.27 — lo rechaza el gate por $2.73.
 
-### Hallazgos abiertos que salieron de este análisis
+### Hallazgos que salieron de este análisis
 
 1. **El gate mide la posición, el STOP actúa sobre los lotes.** `roi = unrealizedpnl / costobase`
    diluye con los lotes perdedores. Casos reales: TLRY (posición −69.1%) tiene lotes al **+16.4%**;
    CTRM (−38.2%) al **+13.4%**; NNDM (−26.2%) al **+11.2%**. Preservation no los ve nunca, y son
-   justo donde la única ganancia que queda vale protegerse. Medir `roi_lot`/`gain_lot` alinearía el
-   gate con lo que el módulo hace. **No implementado — decisión pendiente.**
-2. **`base_limit` es un parámetro muerto.** `base_limit = unrealizedpnl * proteccion_base` (0.40) se
-   pasa a `DataHub.preservation_calc_qty()`, que lo ignora — la qty sale solo de `pct`. O sea
-   `proteccion_base` no afecta la cantidad en nada; solo viaja al contexto de Claude y al
-   `json_audit_log`, donde se escribe como `"ganancia_protegida_usd"`. Ese campo del audit no es la
-   ganancia protegida: en NOMD diría $32 cuando lo real son $18, y en la mayoría de las posiciones
-   sería positivo cuando lo real es negativo. **No corregido.**
+   justo donde la única ganancia que queda vale protegerse.
+
+   **Decisión 2026-08-27: se deja así, a propósito.** No es lo mismo medir la ganancia de la
+   posición entera que la de los lotes ganadores, y el gate de posición es el que expresa la
+   filosofía del módulo: *¿esta posición vale la pena defenderla?* Un símbolo con la posición
+   −69% no se defiende porque le quede un lote verde. Lo que sí se agregó es un segundo gate
+   sobre lo que el STOP asegura de verdad (punto 3), para que el que sí pasa el primero no
+   emita una orden que protege menos de lo que dice.
+
+2. **`base_limit` era un parámetro muerto — CORREGIDO 2026-08-27.** `base_limit =
+   unrealizedpnl * proteccion_base` (0.40) se pasaba a `DataHub.preservation_calc_qty()`, que lo
+   ignoraba: la qty salía solo de `pct`. `proteccion_base` no afectaba la cantidad en nada; solo
+   viajaba al contexto de Claude y al `json_audit_log`, donde se escribía como
+   `"ganancia_protegida_usd"` — un campo que no era la ganancia protegida (en NOMD decía $32
+   cuando lo real eran $18, y era positivo en posiciones donde lo real era negativo).
+
+   Hoy `preservation_calc_qty()` ya no recibe `base_limit` y devuelve `(qty, costo_lotes)`. El
+   audit escribe la `ganancia_protegida` real. `base_limit` sigue existiendo solo como dato de
+   contexto para Claude.
+
+### Cambios de cantidad y de gate (2026-08-27)
+
+**La qty sale de las clases de venta, no de un porcentaje de acciones.** `preservation_calc_qty()`
+llama a `maximiza_sell_lotes()` — las mismas clases que usa GainsCapture — sobre
+`get_lotesGainLost(opcion="gain")`, que ya filtra ROI > 0 y ordena ROI DESC. Dos motivos:
+
+- El cálculo por acciones promediaba todos los lotes ganadores y bajaba el costo base efectivo.
+  En NOMD mezclaba el lote al 11.7% con el del 29.3% y la ganancia asegurada caía de $44 a $33
+  antes siquiera del descuento del stop.
+- El STOP vende lotes enteros, no fracciones de la posición. Una qty que no coincide con ninguna
+  clase deja al agente pisando lotes que ninguna otra vista del sistema muestra.
+
+**Ojo con el "33%":** acá y en GainsCapture significa 33% de los **LOTES** (por conteo, umbral
+`0.336`), no de las acciones. Son números distintos salvo coincidencia.
+
+**Piso de un lote entero.** La clase reparte por conteo: con 1-2 lotes en ganancia el `33%` no
+alcanza ni un lote y la posición se quedaba sin proteger — incluido BTG, el mejor ROI de la
+cartera (2 lotes al 22%). El piso es un lote entero, el de mejor ROI. Nunca una fracción.
+Distribución medida en Stock: 11 posiciones sin lotes en ganancia, 13 con 1-2 lotes (la clase
+quedaba vacía), 16 con ≥3.
+
+**Gate nuevo sobre la ganancia protegida.** `qty * stop_final - costo_lotes >= gainInversion`.
+Ni el gate de ROI ni el `unrealizedpnl` dicen cuánto queda asegurado si el stop se ejecuta —
+el primero mide la posición diluida, el segundo supone vender al mercado. Este mide lo que
+queda en el bolsillo al precio del stop.
+
+Reusa `gainInversion` a propósito: es la misma pregunta en dólares, aplicada a las dos bases.
+Consecuencia a tener presente al tocar la columna: **afloja los dos gates a la vez.**
+
+**Efecto medido (Stock, con el piso aplicado):** desaparecen todos los negativos —
+NOMD $18.05→$28.77, SWK −$9.68→$8.06, PFE −$26.28→$4.20, VALE −$9.67→$7.77, CTRM $5.79→$11.69.
+Máximo de la cartera: NOMD $28.77, BTG $19.64. Con `gainInversion = 70` el gate nuevo rechaza
+todo; el corte real está en $20-25. Queda pendiente decidir el valor.
 
 ---
 
