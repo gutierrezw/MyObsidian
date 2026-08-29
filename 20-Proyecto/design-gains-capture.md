@@ -280,6 +280,81 @@ Ejecuta rápido en mercado activo sin regalar precio. No se usan órdenes MKT.
 
 ---
 
+## Gate cruzado con Preservation (2026-08-29)
+
+Preservation coloca un STOP y GainsCapture una LMT SELL. Cada uno decide con su propio JSON de
+estado y ninguno ve las órdenes del otro, así que entre los dos podían comprometer hasta el **133%**
+de las acciones en ganancia de un mismo símbolo. Era H5 en
+[[resultado-revision-opus-preservation-gainscapture]], el último bloqueante de este agente.
+
+### La regla
+
+Antes de mandar una orden, los dos agentes exigen:
+
+```
+qty_propuesta + qty_comprometida <= position
+```
+
+`qty_comprometida` la calcula `DataHub.qty_comprometida_sell(account, vehiculo, symbol, ...)`
+(`Class_customer.py`): suma la `quantity` de las órdenes **SELL vivas** de ese símbolo.
+
+### Por qué `order_trader` y no el broker
+
+Es la única vista que ya unifica IB y Binance, y **conserva las GTC de días anteriores** — la API de
+IB devuelve solo actividad del día, así que un STOP colocado el martes sería invisible el jueves.
+Es la misma fuente que alimenta la ventana "Lista de Órdenes".
+
+**El riesgo asumido:** el gate vale lo que valga `order_trader.status`. Un FILLED que no se
+sincronizó cuenta como vivo y el gate bloquea de más. Es el fallo conservador y se prefiere sobre
+comprometer de más; queda atado al pendiente de `Agente_SyncOrders` → FILLED.
+
+### Por qué NO se usó OCA
+
+Se evaluó y se descartó por dos razones independientes:
+
+1. **Timing.** OCA enlaza órdenes *ya enviadas*; el sobrecompromiso ocurre *antes* de cualquier
+   fill. Además OCA cancela la hermana **entera**, así que un fill parcial de GainsCapture mataría
+   un STOP que protege otros lotes. `ocaType 2/3` (reducir en vez de cancelar) lo resolvería, pero
+   la CP Web API de IB solo expone `isSingleGroup`, sin control fino.
+2. **Binance no tiene OCA.** El camino nacería asimétrico y rompería el principio broker-agnóstico.
+
+### Las dos puertas de GainsCapture
+
+El agente emite por dos lados y el gate está en los dos:
+
+| Puerta | Comportamiento | Por qué |
+|---|---|---|
+| El loop (propuesta) | **Recorta** a lo disponible y prorratea la ganancia; si queda bajo `min_ganancia` no propone y registra CANCELLED en el historial | Está armando la propuesta y puede ajustarla |
+| `_gains_capture_aprobar()` (botón "Ejecutar" de Telegram) | **Rechaza** y explica por qué | La cantidad ya está fijada y aprobada; recortarla en silencio sería mandar algo distinto de lo aprobado |
+
+La segunda es la crítica: entre la propuesta y el click pueden pasar horas, y Preservation pudo
+colocar su STOP en el medio. El chequeo del loop describe el estado de entonces, no el de ahora. Por
+eso la propuesta persiste `position` en el dict pendiente — la revalidación necesita contra qué
+comparar.
+
+### Preservation excluye su propio STOP
+
+`excluir_order_id` deja fuera la orden propia: Preservation **modifica** su STOP vigente en vez de
+agregar uno nuevo, así que contarlo sería bloquearse a sí mismo y no volver a subir el stop nunca.
+Se compara contra `id_order` y `clientOrderId` porque el id guardado en el estado puede venir de
+cualquiera de los dos.
+
+### Crypto
+
+El gate aplica a Crypto desde el día uno, aunque Preservation/Crypto siga fuera del loop por H6.
+Verificado contra la BD real: `inversion.ticket` y `order_trader.symbol` usan el mismo formato
+(`BNBUSDT`), la cuenta es `B0000001` en ambas, y Binance normaliza `NEW` y `PARTIALLY_FILLED` a
+`Submitted`, que el filtro de órdenes vivas ya contempla.
+
+**Un detalle que solo aparece en Crypto:** el remanente disponible se cuantiza antes de usarlo.
+`position` viene cuantizada pero `qty_comprometida` sale cruda de `order_trader`, así que la resta
+cae fuera del `stepSize` (`0.281 - 0.105 = 0.17600000000000005`) y Binance rechaza esa cantidad. En
+Stock no se nota porque `quantiza_qty` hace `int()`.
+
+**Commits:** `4803517`, `e258c3d`, `049b18e`, `1328647`, `61f61e2`.
+
+---
+
 ## Modos de operación — CÓDIGO REAL
 
 **Vocabulario real** (distinto al del diseño original `automatico`/`autorizado`):
@@ -585,8 +660,8 @@ original como referencia histórica de los pasos ejecutados, no como pendiente.
 ## Pendientes / preguntas abiertas
 
 - [x] ¿`Agente_GainsCapture` corre en el mismo hilo que `Agente_ManagerPreservation` o en uno separado? → Separado: `Agente_GainsCapture` vive en `Class_DashBot.py` (trading/mercado), `Agente_ManagerPreservation` en `Class_AgentManager.py` (infraestructura), cada uno con su propio `@wait_rate`.
-- [ ] Si ambos agentes operan sobre el mismo símbolo simultáneamente (Preservation pone STOP, GainsCapture pone LMT SELL): ¿hay riesgo de conflicto en IB? **Sigue sin resolver — es H5 en [[resultado-revision-opus-preservation-gainscapture]], bloqueado por depender de que `maximiza_sell_lotes()` acote qty contra la posición comprometida, cosa que hoy no hace de forma verificable entre los dos agentes.**
+- [x] Si ambos agentes operan sobre el mismo símbolo simultáneamente (Preservation pone STOP, GainsCapture pone LMT SELL): ¿hay riesgo de conflicto? → **Resuelto 2026-08-29** con el gate cruzado — ver § "Gate cruzado con Preservation". Los dos agentes consultan las SELL vivas en `order_trader` antes de emitir. Era H5.
 - [x] Definir intervalo del agente → `@wait_rate(1800)` fijo (30 min), no `revisiones_dia` configurable como decía el diseño original.
-- [~] Techo de reglas fijas sobre `vender_qty` en Python post-Claude (equivalente al piso que ya tiene Preservation) — **parcial 2026-08-22**: existe el tope `vender_qty <= position` con ganancia prorrateada y el piso `min_ganancia` sobre la clase. Falta el techo relativo (ej: "nunca más del X% de la posición en un ciclo") y el cruce con Preservation (H5).
+- [~] Techo de reglas fijas sobre `vender_qty` en Python post-Claude (equivalente al piso que ya tiene Preservation) — **parcial 2026-08-22**: existe el tope `vender_qty <= position` con ganancia prorrateada y el piso `min_ganancia` sobre la clase. El cruce con Preservation (H5) se cerró el 2026-08-29. Falta solo el techo relativo (ej: "nunca más del X% de la posición en un ciclo").
 - [ ] Calibrar `gains_capture.min_ganancia` — con 200 sobre la clase el agente solo puede proponer "100%" (ver "Umbrales" arriba).
 - [ ] El fallback fail-closed cuando Claude falla (esta sesión lo documentó como divergencia del diseño original, que era fail-open) — decidir explícitamente con el usuario si se mantiene o se revierte al comportamiento documentado originalmente.

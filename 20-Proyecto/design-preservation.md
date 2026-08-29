@@ -617,6 +617,29 @@ Antes de tocar el umbral en una sesión futura, releer este párrafo.
 
 ---
 
+## Gate cruzado con GainsCapture (2026-08-29)
+
+Antes de colocar un STOP, Preservation exige `qty + qty_comprometida <= position`, donde
+`qty_comprometida` son las acciones del símbolo ya comprometidas en órdenes de venta vivas — las
+ponga quien las ponga. Es un **séptimo gate**, después de los seis de § "Umbrales", y el único que
+mira fuera de la posición.
+
+Sin él, Preservation y GainsCapture podían comprometer entre los dos hasta el 133% de las acciones
+en ganancia del mismo símbolo. Era H5 en
+[[resultado-revision-opus-preservation-gainscapture]].
+
+**El STOP propio no cuenta.** Preservation modifica la orden vigente en vez de agregar una nueva, así
+que se excluye vía `excluir_order_id`; sin eso el agente se bloquearía a sí mismo cada ciclo y no
+volvería a subir su propio stop nunca.
+
+El diseño completo — por qué la fuente es `order_trader` y no el broker, por qué se descartó OCA, y
+cómo se comporta en Crypto — vive en [[design-gains-capture]] § "Gate cruzado con Preservation", que
+es el agente con las dos puertas de emisión. Acá solo queda la parte que toca a Preservation.
+
+**Commits:** `4803517`, `e258c3d`, `049b18e`.
+
+---
+
 ## Pendientes / preguntas abiertas
 
 - [x] **`ClaudeAPIP`** — resuelto: key propia, `BDsystem.get_sesion_by_vehiculo("ClaudeAPIP")` (`Class_AgentManager.py:979`).

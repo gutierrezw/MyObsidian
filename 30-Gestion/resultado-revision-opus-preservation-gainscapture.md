@@ -21,15 +21,12 @@ desde la que se decide subir a producción. Lo cerrado no se borró — está ab
 
 ## Pendiente
 
-Un solo hallazgo abierto. Todo lo demás vive en "Cerrados" y no se reabre sin motivo nuevo.
-
-| # | Hallazgo | Severidad | Dónde | Qué falta |
-|---|----------|-----------|-------|-----------|
-| H5 | STOP (Preservation) + LMT SELL (GainsCapture) pueden coexistir sobre el mismo símbolo sin vínculo OCA ni consulta cruzada de órdenes vivas — hasta 133% de las acciones en ganancia comprometidas a la vez | 🔴 **Bloqueante de #53** | Estados en dos JSON independientes (`preservation_state.json`, `gains_capture_state.json`), sin lock ni reconciliación | Gate cruzado por símbolo: antes de proponer, sumar `qty_propuesta + qty_comprometida` y exigir `<= position`. **Ya no depende de H1** — el tope duro `vender_qty <= position` con ganancia prorrateada existe desde el 2026-08-22, así que hay contra qué comparar |
+**Ninguno.** Los diez hallazgos están cerrados — ver la tabla de abajo. No se reabre uno sin motivo
+nuevo, y donde el cierre fue por evidencia y no por código (H8) queda escrito qué lo reabriría.
 
 ### Condición para PROD
 
-- **GainsCapture (#53)** — bloqueado solo por **H5**, el único hallazgo abierto de toda la revisión. El resto está cerrado.
+- **GainsCapture (#53)** — sin hallazgos abiertos. El último, H5, se cerró el 2026-08-29.
 - **Preservation (#76), Stock únicamente** — sin bloqueantes ni advertencias abiertas.
   Crypto quedó fuera del loop por H6 y no vuelve hasta que Stock esté sólido.
 
@@ -41,6 +38,7 @@ Se conservan porque explican por qué el código es como es hoy. No reabrir sin 
 
 | # | Hallazgo | Cierre |
 |---|----------|--------|
+| H5 | STOP (Preservation) + LMT SELL (GainsCapture) coexisten sobre el mismo símbolo sin vínculo ni consulta cruzada — hasta 133% de las acciones en ganancia comprometidas a la vez | 🟢 **Cerrado 2026-08-29 — gate cruzado implementado** (`4803517`, `e258c3d`, `049b18e`, `1328647`, `61f61e2`). Los dos agentes consultan ahora `DataHub.qty_comprometida_sell()`, que suma las SELL vivas del símbolo en `order_trader` y exige `qty_propuesta + comprometida <= position`. **OCA se evaluó y se descartó** por dos razones independientes: enlaza órdenes ya enviadas, mientras que el sobrecompromiso ocurre *antes* de cualquier fill; y Binance no tiene OCA, así que el camino nacería asimétrico. La fuente es `order_trader` y no el broker porque es la única vista que ya unifica IB y Binance y conserva las GTC de días anteriores. **Riesgo asumido:** el gate vale lo que valga `order_trader.status` — un FILLED sin sincronizar cuenta como vivo y bloquea de más; es el fallo conservador y se prefiere. Detalle en [[design-gains-capture]] § Gate cruzado |
 | H8 | Fallback silencioso `sma_base = last` cuando falla SMA20 — fail-open, y el ratchet lo deja fijado permanentemente | 🟢 **Cerrado 2026-08-26 por evidencia — el código NO cambió.** El fallback sigue tal cual en `Class_AgentManager.py:1066-1071`. Se cerró porque el caso nunca ocurrió: 0 apariciones de `SMA20 no disponible` en el log, y la ventana en que puede darse es estrecha (el ATR pide 14 velas y corta antes; la SMA pide 20, así que solo falla con 14-19 filas en cache). Además el ratchet que cementaba el fallback nunca tuvo qué cementar: Preservation no colocó un solo stop desde el 2026-08-03. **Si alguna vez aparece esa línea en el log, reabrir** — el fix diseñado es pasar a fail-closed (si hay stop, no tocarlo y alertar; si no hay, saltar el ciclo) |
 | H7 | `PRECIO_MINIMO = 50.0` hardcodeado excluye justo el perfil volátil que GainsCapture ataca | 🟢 **Cerrado 2026-08-26 — la condición se eliminó.** No se reemplazó por un piso configurable: Preservation ya tiene un filtro económico configurado y por vehículo, `unrealizedpnl < sesion.gainInversion` (Stock $70, Crypto $20), que mide dólares de ganancia en juego en vez del precio unitario de la acción. El piso de $50 era un proxy peor del mismo criterio — ignoraba cantidad y ganancia, y dejaba sin proteger justo el perfil de precio bajo que GainsCapture sí ataca. El `$0.001` de Crypto del punto (4) de #76 nunca se usó y ya no hace falta |
 | H1 | `maximiza_sell_lotes()` reparte por conteo de lotes, no por cantidad de acciones | 🟢 **Reencuadrado 2026-08-21 — no era un bug.** Confirmado con el usuario, dueño del diseño original: "vender 25%/33%/100% de los lotes en ganancia" siempre fue por CONTEO de lotes. Que 25%/33% sean inalcanzables con pocos lotes es matemática, no un error. Fix aplicado en `Class_DashBot.py`: `escenarios_disponibles` según `len(list_gain)` (25% pide ≥4 lotes, 33% pide ≥3) — a Claude solo se le ofrecen los escenarios alcanzables. Validado contra cartera real: 14/26 símbolos con 1-2 lotes reciben solo `["100%"]`. **Ratificado 2026-08-26** |
@@ -68,7 +66,7 @@ Se conservan porque explican por qué el código es como es hoy. No reabrir sin 
 
 ## Ítems de BACKLOG afectados
 
-- [[BACKLOG]] #53 (`Agente_GainsCapture`) — bloqueado **solo por H5**.
+- [[BACKLOG]] #53 (`Agente_GainsCapture`) — desbloqueado 2026-08-29, sin hallazgos abiertos.
 - [[BACKLOG]] #76 (`Agente_ManagerPreservation` Fase 1, Stock) — sin bloqueantes ni advertencias.
 - [[BACKLOG]] #81 (Capa 4 AUTONOMO) — ya no cruza por H9: el switch compartido fue la decisión
   deliberada, no un defecto.
