@@ -304,9 +304,19 @@ Es la única vista que ya unifica IB y Binance, y **conserva las GTC de días an
 IB devuelve solo actividad del día, así que un STOP colocado el martes sería invisible el jueves.
 Es la misma fuente que alimenta la ventana "Lista de Órdenes".
 
+Esa decisión pone una condición encima: si el gate lee `order_trader`, la tabla tiene que ser el
+censo **completo** de lo comprometido. Una orden viva que no esté ahí es invisible.
+
 **El riesgo asumido:** el gate vale lo que valga `order_trader.status`. Un FILLED que no se
 sincronizó cuenta como vivo y el gate bloquea de más. Es el fallo conservador y se prefiere sobre
 comprometer de más; queda atado al pendiente de `Agente_SyncOrders` → FILLED.
+
+**Un hueco que sí había que cerrar (2026-08-29).** Preservation manda el STOP a IB **antes** de
+escribir la fila, y cuando el `order_id` no volvía no escribía nada: el STOP quedaba vivo en el
+broker e invisible para el gate, posiblemente por días. Un fantasma. Se resolvió con la columna
+`order_trader.sync_broker`: la fila se escribe igual, marcada `SIN_CONFIRMAR`, y cuenta como
+comprometida hasta que el broker la confirme o la descarte. El detalle vive en
+[[design-preservation]] § "Gate cruzado con GainsCapture" — el fantasma lo genera Preservation.
 
 ### Por qué NO se usó OCA
 

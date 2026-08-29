@@ -636,6 +636,40 @@ El diseño completo — por qué la fuente es `order_trader` y no el broker, por
 cómo se comporta en Crypto — vive en [[design-gains-capture]] § "Gate cruzado con Preservation", que
 es el agente con las dos puertas de emisión. Acá solo queda la parte que toca a Preservation.
 
+### El STOP fantasma — `sync_broker` (2026-08-29)
+
+Si el gate lee `order_trader`, la tabla tiene que ser el censo completo de lo comprometido. **No lo
+era.** `_preservation_run_vehiculo()` manda el STOP a IB y después escribe la fila; cuando IB no
+devolvía `order_id`, el camino `[RETRY-FAIL]` / `[STATE-PRESERVED]` no escribía nada a propósito — sin
+`order_id` no había con qué identificar la orden.
+
+El resultado era un STOP vivo en el broker e invisible para el sistema: el gate no lo veía y
+GainsCapture podía vender las mismas acciones. Justo el escenario que H5 existe para evitar, entrando
+por la puerta de atrás.
+
+Ahora la fila **se escribe igual**, con `sync_broker = 'SIN_CONFIRMAR'` y sin `clientOrderId`, y se
+loguea `[SIN-CONFIRMAR]` a ERROR. El gate la cuenta como comprometida sin mirar su `status` — ante la
+duda bloquea de más, nunca de menos.
+
+No se usó `status` para esto: `status` traduce lo que dijo el broker, y un valor inventado mentiría
+sobre lo único que esa columna debe decir. Semánticas distintas, columnas distintas.
+
+`resolve_unconfirmed_orders()` (`Modulos_Mysql.py`, la llama `Agente_SyncOrders` cada 300s) la
+resuelve contra IB. No puede cruzar por `clientOrderId` — es el dato que falta, y por eso
+`sync_orders_from_ib()` nunca la encuentra —, así que cruza por símbolo y precio de stop, igual que el
+reintento `[RETRY-OK]`; `order_trader.price` guarda el límite (`stop * 0.99`) y el stop se reconstruye
+antes de comparar. Tras una hora sin aparecer, la marca `HUERFANA` y deja de contar: IB publica la
+orden en live orders apenas la acepta, así que no estar significa que nunca entró **o** que ya se
+ejecutó. Los dos casos no se distinguen sin consultar ejecuciones y para el gate dan lo mismo — en
+ninguno quedan acciones comprometidas hacia adelante. El log es ERROR porque el segundo caso sí
+importa para la auditoría.
+
+La semántica de la columna está en `CLAUDE.md` § "Columnas con semántica propia" y repetida en el
+COMMENT de MySQL.
+
+**Lo que esto no cubre:** un STOP colocado por fuera del sistema — a mano en TWS, por ejemplo — sigue
+sin estar en `order_trader` y el gate no lo ve.
+
 **Commits:** `4803517`, `e258c3d`, `049b18e`.
 
 ---
