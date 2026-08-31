@@ -696,18 +696,26 @@ Los fixes 3-5 son el mismo problema que ya se había corregido en `preservation_
 (ver § "Granularidad de la trama por vehículo"): la trama salía bien pero el techo del stop, la fila
 de `order_trader` y el log seguían redondeando a 2 decimales.
 
-### Archivo de log propio (2026-08-31)
+### Archivo de log propio — `logs/agentes_venta.log` (2026-08-31)
 
-Preservation escribe en `logs/preservation.log`, no en el log común. El motivo es la rotación:
-`handled_CacheLogger_name()` alterna `log_even`/`log_old` por día par/impar y **borra el del turno
-anterior**, así que el archivo común no conserva más de dos días — inservible para ver cómo
-evoluciona un módulo que recién arranca en DRY-RUN. El archivo propio rota por tamaño (5 MB × 10).
+Preservation **y GainsCapture** escriben ahí, no en el log común. Dos decisiones separadas:
 
-`propagate = False`, así que las líneas no quedan duplicadas en el log común. El nivel se sigue
-cambiando desde el panel Debugging: actúa sobre el mismo objeto `logging.getLogger("Preservation")`.
+**Por qué sale del log común.** `handled_CacheLogger_name()` alterna `log_even`/`log_old` por día
+par/impar y **borra el del turno anterior**, así que el archivo común no conserva más de dos días —
+inservible para ver cómo evoluciona un módulo que recién arranca en DRY-RUN. El archivo propio rota
+por tamaño (5 MB × 10). `propagate = False` evita duplicar las líneas en el común.
 
-`Debugging._logger_a_su_archivo(key, filename)` quedó genérico por si otro módulo necesita lo mismo
-— GainsCapture es el candidato natural, todavía no aplicado.
+**Por qué los dos agentes en el mismo archivo.** Se cruzan por el gate H5
+(`qty_comprometida_sell`): Preservation no emite si GainsCapture tiene una LMT viva sobre el mismo
+símbolo, y al revés. Separarlos obliga a leer dos líneas de tiempo en paralelo justo donde importa
+que sea una sola. El formato incluye `%(name)s`, así que las líneas se distinguen.
+
+Los dos loggers **comparten el objeto handler**, no uno cada uno: dos `RotatingFileHandler` sobre el
+mismo path pelean la rotación y en Windows uno de los dos falla al renombrar.
+`Debugging._logger_a_su_archivo(key, filename)` cachea el handler por archivo destino.
+
+El nivel se sigue cambiando desde el panel Debugging: actúa sobre los mismos objetos
+`logging.getLogger("Preservation")` / `("GainsCapture")`.
 
 ### Lo que falta antes de sacar el DRY-RUN
 
