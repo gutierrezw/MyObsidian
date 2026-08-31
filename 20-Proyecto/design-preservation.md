@@ -674,6 +674,57 @@ sin estar en `order_trader` y el gate no lo ve.
 
 ---
 
+## Crypto entra al loop, los dos en DRY-RUN (2026-08-31)
+
+`Agente_ManagerPreservation` vuelve a iterar `("Stock", "Crypto")`, revirtiendo la decisión H6 del
+2026-08-21 que había sacado a Crypto. **La reversión no contradice aquel motivo, lo elimina:** lo que
+se objetaba entonces era que `is_live` dependía de `vehiculo == "Stock"`, así que Crypto simulaba en
+silencio sin que nadie lo supiera. Ahora `is_live` solo mira `_preservation_dry_run`, que vale
+**True para los dos vehículos** — los dos simulan, y la simulación se ve en el log.
+
+### Lo que había que arreglar antes de que Crypto pudiera correr
+
+| # | Qué rompía | Fix |
+|---|---|---|
+| 1 | `schedule_order_remote` no tenía rama `action == "cancel"` para Crypto — estaba solo dentro de `if vehiculo == "Stock"`. Preservation cancela+recrea el STOP en cada suba y también al salir por ROI, así que el pedido caía en `put_completa_orden` como si fuera una orden nueva | Rama Crypto simétrica a la de Stock, vía `BClient.get_cancel_order()` |
+| 2 | `get_cancel_order(symbol, orderId)` solo aceptaba el id numérico de Binance, pero `preservation_extract_order_id` devuelve el `clientOrderId` (string) | `orderId` y `origClientOrderId` opcionales; el llamador elige según `str(order_id).isdigit()` |
+| 3 | `stop_max = round(last - atr, 2)` — 2 decimales en duro. VTHO cotiza 0.000414: el techo daba **0.00** y capaba el stop a cero | `DataHub.quantiza_precio(vehiculo, symbol, ...)` |
+| 4 | `limit_price = round(stop_final * 0.99, 2)` en los dos `insert_order_trader` (camino confirmado y camino `SIN_CONFIRMAR`) | Igual que el anterior |
+| 5 | El log del agente formateaba todo con `:.2f`. En DRY-RUN ese log **es** la única salida, y con sub-centavo se leía todo `0.00` | `DataHub.format_precio()`, que usa los decimales del `tickSize` |
+
+Los fixes 3-5 son el mismo problema que ya se había corregido en `preservation_build_trama`
+(ver § "Granularidad de la trama por vehículo"): la trama salía bien pero el techo del stop, la fila
+de `order_trader` y el log seguían redondeando a 2 decimales.
+
+### Lo que falta antes de sacar el DRY-RUN
+
+- **Ventana 9-16h** (§ "Ventana horaria 9-16h") — es horario NYSE/NASDAQ. Crypto es 24x7 y las
+  caídas que Preservation existe para atajar pasan de madrugada. Con 2 revisiones/día dentro de esa
+  franja, en Crypto protege poco.
+- **`resolve_unconfirmed_orders()` solo consulta IB** (§ "El STOP fantasma"). Una fila Crypto
+  `SIN_CONFIRMAR` no se resuelve nunca y bloquea el símbolo en el gate cruzado para siempre.
+- **`price == stopPrice`** en la rama Crypto de `preservation_build_trama` — Stock usa `stop * 0.99`.
+  En una caída rápida un límite pegado al stop no llena.
+- **Colateral del préstamo** — Crypto tiene bloques `loan`/`ltv`. Un `STOP_LOSS_LIMIT` sobre saldo
+  comprometido como colateral lo rechaza Binance. Sin verificar contra `crypto_wallet_free()`.
+- **Contexto Claude vacío** — `select_preservation_context()` lee `market`, donde no hay símbolos
+  Crypto (0 de 25). Consenso, `inst_score` y 13F llegan `N/D`: degrada bien, pero afina a ciegas.
+- **`int(qty)` en la auditoría** (`qty_protegida`, `append_order_audit_log`) — 0.0104 BTC se
+  registra como `0`. No afecta la orden, sí el histórico.
+
+### Qué gatillaría hoy
+
+Con `roi_minimo 0.18` y `gainInversion 20`, de las 12 posiciones Crypto vivas entra **una sola**:
+BNBUSDT (+30,30 sobre 167,25 = **18,1%**). BTCUSDT (14,5%) y SOLUSDT (12,3%) quedan afuera por poco.
+El bloque `preservation` de `sesion.parameters` para Crypto ya existía y está calibrado aparte del de
+Stock: `atr_mult 2.5`, `correccion_pct 0.12`, `proteccion_base 0.4`, `revisiones_dia 2`.
+
+**`categoriaActivo` no era bloqueador.** `_preservation_run_vehiculo()` nunca la consulta — el filtro
+`IN ('I','S')` vive solo en este documento, nunca en el código. Ya estaba anotado en
+[[plan-crypto-gainscapture]] § Etapa 0 y se confirma acá.
+
+---
+
 ## Pendientes / preguntas abiertas
 
 - [x] **`ClaudeAPIP`** — resuelto: key propia, `BDsystem.get_sesion_by_vehiculo("ClaudeAPIP")` (`Class_AgentManager.py:979`).
