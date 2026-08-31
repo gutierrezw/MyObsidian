@@ -696,6 +696,19 @@ Los fixes 3-5 son el mismo problema que ya se había corregido en `preservation_
 (ver § "Granularidad de la trama por vehículo"): la trama salía bien pero el techo del stop, la fila
 de `order_trader` y el log seguían redondeando a 2 decimales.
 
+### Archivo de log propio (2026-08-31)
+
+Preservation escribe en `logs/preservation.log`, no en el log común. El motivo es la rotación:
+`handled_CacheLogger_name()` alterna `log_even`/`log_old` por día par/impar y **borra el del turno
+anterior**, así que el archivo común no conserva más de dos días — inservible para ver cómo
+evoluciona un módulo que recién arranca en DRY-RUN. El archivo propio rota por tamaño (5 MB × 10).
+
+`propagate = False`, así que las líneas no quedan duplicadas en el log común. El nivel se sigue
+cambiando desde el panel Debugging: actúa sobre el mismo objeto `logging.getLogger("Preservation")`.
+
+`Debugging._logger_a_su_archivo(key, filename)` quedó genérico por si otro módulo necesita lo mismo
+— GainsCapture es el candidato natural, todavía no aplicado.
+
 ### Lo que falta antes de sacar el DRY-RUN
 
 - **Ventana 9-16h** (§ "Ventana horaria 9-16h") — es horario NYSE/NASDAQ. Crypto es 24x7 y las
