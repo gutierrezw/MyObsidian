@@ -265,11 +265,75 @@ son favorables para continuar subiendo.
   no lo pide ni lo recibe). **2026-08-23:** se sacó de la traza `CLAUDE` de
   `symbol_decision_history`, donde siempre escribía `urgencia=None`.
 - La traza `CLAUDE` lleva la decisión en la columna `mensaje`, no en `json_contexto`: el panel
-  Symbol Events sólo muestra `timestamp, agente, tag, mensaje`, así que un mensaje que no se
+  Symbol Events muestra `Última, Veces, agente, tag, mensaje`, así que un mensaje que no se
   explique solo es una fila inútil. Formato:
   `vender | clase 25% | ROI 28.3% | RSI_d 80.4 — <razón de Claude, 160 chars>`.
   El `json_contexto` sigue guardando lo mismo con más precisión (`roi` 4 decimales,
   `razon` 300 chars) para consulta por SQL.
+
+---
+
+## La traza cuenta repeticiones en vez de repetirse (2026-08-31)
+
+En `SUPERVISADO` el agente propone por Telegram y espera autorización, así que **vuelve a
+recomendar lo mismo en cada turno**. Con una fila por turno la tabla medía la frecuencia del
+agente, no lo que pasó: de las 64 filas acumuladas, 16 eran "vender clase 100%" sobre ADAUSDT
+del mismo día, entre las 11:54 y las 20:27.
+
+`insert_symbol_decision_history(..., dedup_key=...)` colapsa la repetición: `veces` cuenta,
+`primera_vez` abre la corrida y `timestamp` se corre hasta el último turno. Consolidando lo ya
+cargado, **64 filas quedaron en 9**.
+
+**El `mensaje` no puede ser la clave** — trae el ROI del momento y la prosa de Claude, que
+cambian siempre. La arma el que llama con la parte estable de la decisión: `accion|escenario`
+para GainsCapture (`vender|100%`), `stop|urgencia` para Preservation. Sirve además de control:
+BTCUSDT no quedó en una fila sino en cuatro, porque Claude fue cambiando de escenario
+(25% → 33% → 25% → 100%). Eso es señal, no ruido.
+
+Los tags de acción real (`ENVIADA`, `MODIFICADA`, `FILLED`, `CANCELLED`, `EXIT`) **no pasan
+`dedup_key`**: cada orden es un hecho único y agruparlas lo perdería.
+
+### Qué cierra una corrida
+
+Solo colapsa repeticiones **consecutivas**, contra la última fila de ese `(symbol, agente)`.
+Así `veces=16` significa "16 veces seguidas lo mismo", no "16 veces en la historia", y la línea
+de tiempo del panel se sigue leyendo en orden.
+
+**Una orden nueva en `order_trader` también cierra la corrida, la haya emitido el agente o no.**
+El corte no puede depender de que el agente escriba su propio `ENVIADA`: BTG se vendió a mano el
+25/08 (`intent='MANUAL'`) mientras GainsCapture recomendaba vender, y sin ese chequeo la fecha
+"hasta" se seguiría estirando por encima de una decisión ya tomada — el panel mostraría como
+pendiente algo que el usuario ya resolvió. `order_trader` es donde queda la acción venga del
+agente, de la autorización por Telegram o del broker, así que el corte se mide ahí.
+
+Por eso la llamada pasa `account`: filtra por `idx_account_symbol` y respeta la regla
+account-first.
+
+### Lo que esto dejó ver
+
+La consolidación es también un instrumento de medición. Sobre los datos de agosto:
+
+| | |
+|---|---|
+| Filas con tag distinto de `CLAUDE` | **0** — la tabla registra la opinión, nunca el resultado |
+| Filas con `order_trader_id` | **0 de 64** — no hay forma de unir una recomendación con su orden |
+| `order_trader.json_audit_log` poblados | **0 de 50** órdenes de agosto |
+
+ADAUSDT es el caso testigo: 16 propuestas de vender el 100% con remanente a 0,4869, ninguna
+ejecutada, y la posición hoy en **−542 USD**. El contador no arregla eso, pero lo hace visible
+en una fila en vez de repartirlo en dieciséis.
+
+Las dos filas nulas de la tabla son la misma cosa vista por sus dos puntas: **no hay puente entre
+una recomendación y la orden que produjo**. Se ve qué propuso Claude y se ve qué se ejecutó, pero
+nada dice que lo segundo salga de lo primero — y sin eso no se puede medir la tasa de acierto de los
+módulos de venta, que es el dato con el que se calibra el modo autónomo (BACKLOG #83). Queda anotado
+el 2026-08-31 para pensarlo, no resuelto: → **BACKLOG #85**. El contador reduce el ruido de la tabla,
+no toca el puente.
+
+**Nota de consolidación retroactiva:** el backfill se corrió antes de agregar el corte por
+orden, así que ADAUSDT (16 ×) y SOLUSDT (15 ×) quedaron agrupados por encima de un BUY del
+23/08. Con la regla vigente serían dos filas cada uno. Las filas originales ya no existen; es
+histórico y no se recupera.
 
 ---
 

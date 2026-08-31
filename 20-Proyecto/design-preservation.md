@@ -755,6 +755,14 @@ El nivel se sigue cambiando desde el panel Debugging: actúa sobre los mismos ob
 - ~~**Ventana 9-16h**~~ — **RESUELTO 2026-08-31** (§ "La ventana deja de estar en duro"). La franja
   pasó a `parameters.preservation.ventana`; Crypto quedó en `[0, 24]` con 12 revisiones/día (cada 2h)
   y Stock sin cambio de comportamiento.
+- **La rama EXIT cancela en el broker aunque el vehículo esté en DRY-RUN** — `_preservation_run_vehiculo()`
+  llama a `DataHub.preservation_cancel_order()` en las líneas 1021-1050, y `is_live` recién se calcula
+  en la 1171. Un DRY-RUN que por definición no debe tocar nada cancelaría una orden real. Hoy no
+  dispara — la rama necesita un símbolo con `order_id` en `deploy/tmp/preservation_state.json` y ese
+  archivo solo tiene los `_last_run_*` —, pero **se abre en la primera corrida que persista un STOP**,
+  que es exactamente el momento en que se sale del DRY-RUN. Anotado el 2026-08-31 para resolverlo
+  aparte: el arreglo es chico pero mueve el orden de un método bajo observación en producción, y no
+  se quiso mezclar con el cambio de ventana. → BACKLOG #84.
 - **`resolve_unconfirmed_orders()` solo consulta IB** (§ "El STOP fantasma"). Una fila Crypto
   `SIN_CONFIRMAR` no se resuelve nunca y bloquea el símbolo en el gate cruzado para siempre.
 - **`price == stopPrice`** en la rama Crypto de `preservation_build_trama` — Stock usa `stop * 0.99`.
