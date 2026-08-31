@@ -440,8 +440,9 @@ El decorador `@wait_rate(intervalo, ...)` sobre `Agente_ManagerPreservation` con
 independiente**, contra `preservation_state.json`:
 
 ```python
-revisiones_dia = pconfig.get("revisiones_dia", 2)          # ← vive en BD, no en archivo
-intervalo_min = ((16 - 9) * 3600) / revisiones_dia          # default: 3.5h dentro de la ventana
+revisiones_dia = pconfig.get("revisiones_dia", 2)                    # ← vive en BD, no en archivo
+ventana_desde, ventana_hasta = pconfig.get("ventana", (9, 16))       # ← idem, por vehículo
+intervalo_min = ((ventana_hasta - ventana_desde) * 3600) / revisiones_dia
 ```
 
 Si `elapsed < intervalo_min` (medido contra `_last_run_{vehiculo}` en
@@ -478,11 +479,43 @@ lo decide `intervalo_min`.
 | Capa | Rol |
 |---|---|
 | `@wait_rate(1800)` | ofrece turnos frecuentes, sin ventana |
-| `_preservation_get_config()` | ventana 9-16h + espaciado por `revisiones_dia` |
+| `_preservation_get_config()` | ventana por vehículo + espaciado por `revisiones_dia` |
 
-**Pendiente de decisión:** la ventana está en hora local (UTC-3) y hardcodeada. En horario de
-verano ET equivale a 8:00-15:00 ET — incluye una hora de pre-market y se pierde la última hora
-de rueda. Si se busca rueda real conviene `(11, 17)` local.
+**Pendiente de decisión:** la ventana está en hora local (UTC-3). En horario de verano ET
+equivale a 8:00-15:00 ET — incluye una hora de pre-market y se pierde la última hora de rueda.
+Si se busca rueda real conviene `(11, 17)` local. (Sigue abierto: es un tema de *qué franja*,
+no de *dónde vive* — eso último se resolvió abajo.)
+
+#### La ventana deja de estar en duro: `parameters.preservation.ventana` (2026-08-31)
+
+**Revierte el "hardcodeada" del párrafo anterior, no la decisión de 2026-08-24.** El reparto
+dentro de una franja sigue siendo el mecanismo; lo que cambia es que la franja ya no la fija el
+código.
+
+9-16 es horario NYSE/NASDAQ. Para Stock es correcto: fuera de esa franja el precio no se mueve
+y revisar de madrugada solo mira datos stale. Para Crypto es directamente erróneo — opera 24x7,
+así que la franja dejaba **17 horas de mercado abierto sin revisar**, justo la madrugada donde
+pasan las caídas repentinas que este agente existe para atajar.
+
+Se resolvió por configuración y no con un `if vehiculo == "Crypto"`, para que un vehículo nuevo
+declare su franja en vez de esperar un cambio de código. El default sigue siendo `(9, 16)`: un
+vehículo sin la clave `ventana` se comporta exactamente como antes.
+
+| Vehículo | `ventana` | `revisiones_dia` | Espaciado real |
+|---|---|---|---|
+| Stock | `[9, 16]` | 2 | cada 3h30 — **sin cambio** |
+| Crypto | `[0, 24]` | 12 | cada 2h, todo el día |
+
+A Stock se le escribió `[9, 16]` explícito aunque coincide con el default: deja de depender de
+un valor del código y queda ajustable desde la BD el día que haga falta.
+
+`sesion.parameters` es un **blob**, no una columna JSON — `JSON_SET(parameters, …)` falla con
+error 3144. El `UPDATE` va con `JSON_SET(CONVERT(parameters USING utf8mb4), '$.preservation.ventana', …)`
+y toca **solo** el sub-objeto `preservation`: el mismo blob guarda credenciales y los bloques
+`loan`/`ltv`/`gains_capture`.
+
+`preservation_config` se cachea por vida del proceso — el cambio toma efecto **al reiniciar la
+app**, no en caliente.
 
 ### Lección para próximas sesiones de debugging
 Si el log de Preservation se corta después de "config cargada"/"REVISIÓN" sin avanzar,
@@ -719,9 +752,9 @@ El nivel se sigue cambiando desde el panel Debugging: actúa sobre los mismos ob
 
 ### Lo que falta antes de sacar el DRY-RUN
 
-- **Ventana 9-16h** (§ "Ventana horaria 9-16h") — es horario NYSE/NASDAQ. Crypto es 24x7 y las
-  caídas que Preservation existe para atajar pasan de madrugada. Con 2 revisiones/día dentro de esa
-  franja, en Crypto protege poco.
+- ~~**Ventana 9-16h**~~ — **RESUELTO 2026-08-31** (§ "La ventana deja de estar en duro"). La franja
+  pasó a `parameters.preservation.ventana`; Crypto quedó en `[0, 24]` con 12 revisiones/día (cada 2h)
+  y Stock sin cambio de comportamiento.
 - **`resolve_unconfirmed_orders()` solo consulta IB** (§ "El STOP fantasma"). Una fila Crypto
   `SIN_CONFIRMAR` no se resuelve nunca y bloquea el símbolo en el gate cruzado para siempre.
 - **`price == stopPrice`** en la rama Crypto de `preservation_build_trama` — Stock usa `stop * 0.99`.
@@ -738,7 +771,7 @@ El nivel se sigue cambiando desde el panel Debugging: actúa sobre los mismos ob
 Con `roi_minimo 0.18` y `gainInversion 20`, de las 12 posiciones Crypto vivas entra **una sola**:
 BNBUSDT (+30,30 sobre 167,25 = **18,1%**). BTCUSDT (14,5%) y SOLUSDT (12,3%) quedan afuera por poco.
 El bloque `preservation` de `sesion.parameters` para Crypto ya existía y está calibrado aparte del de
-Stock: `atr_mult 2.5`, `correccion_pct 0.12`, `proteccion_base 0.4`, `revisiones_dia 2`.
+Stock: `atr_mult 2.5`, `correccion_pct 0.12`, `proteccion_base 0.4`, `revisiones_dia 12` (ver arriba).
 
 **`categoriaActivo` no era bloqueador.** `_preservation_run_vehiculo()` nunca la consulta — el filtro
 `IN ('I','S')` vive solo en este documento, nunca en el código. Ya estaba anotado en
