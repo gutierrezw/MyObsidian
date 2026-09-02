@@ -406,6 +406,14 @@ reconstruye hacia atrás**, cada día estampado se perdía para siempre.
 reintenta cada 3 h y loguea el WARNING en vez de estampar. Es ruido; perder el día en silencio
 era el daño real.
 
+**Tercer arreglo, consecuencia del segundo.** `proceso_update_performance()` colgaba del
+`if update:` de `schedule_diario()` (`Class_customer.py`), así que al dejar de devolver `True`
+incondicionalmente, `performa_inversion` dejaba de ponerse al día cuando la diaria no había
+avanzado ese día. Se vio en la reconstrucción: la diaria quedó hasta el 2026-09-01 pero performa
+hasta el 08-31, y la app nunca habría cerrado esa brecha sola. Ahora la llamada va **fuera del
+`if`** — cerrar la brecha diaria↔performa es su trabajo, independiente de si hoy entraron filas.
+Es idempotente: solo inserta fechas posteriores al último `fechaclose`.
+
 **La serie histórica quedó mal desde el origen.** Con la categoría rota los valores salieron de
 un ticker mal resuelto: el 27/08 DOGEUSDT figuraba con `value = 46756` sobre 402 unidades
 (close implícito 116 USD) cuando el close real de Binance era **0,08137** → ~33 USD. Toda la
