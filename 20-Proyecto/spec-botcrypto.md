@@ -373,6 +373,48 @@ Guardar por operación:
 
 ---
 
+### 9.1 Diaria y performa — `categoria = 'BotCrypto'` (corregido 2026-09-02)
+
+BotCrypto no tiene una cadena propia: comparte `diaria_performance` → `performa_inversion`
+con el resto de los vehículos, alimentada por `schedule_diario` → `diaria_book_performance()`
+→ `detalle_book()` (`Modulos_Comunes.py`).
+
+`detalle_book()` elegía la fuente de precios por la columna `booktrading.categoria`, y solo
+reconocía `Stock` / `BBVA.ARS` / `Crypto`. Las filas de B0000002 traen **`categoria = 'BotCrypto'`**,
+así que caían al `else` y le pedían `ADAUSDT` a Yahoo — que no lo resuelve. Efecto en cadena:
+
+1. `csv_app_BotCrypto.csv` salía **con solo el header** — ningún símbolo escribía fila.
+2. `diaria_performance` de B0000002 quedó congelada el **2026-08-27**.
+3. `performa_inversion` no pudo avanzar más allá de esa fecha.
+4. `check_performance_vehiculo()` (`Class_gestion.py`) pide
+   `fechaclose >= ultimo_dia_habil(mes)` → BotCrypto **bloqueó el cierre de agosto de los
+   cinco vehículos**, porque `cierre_extractos()` es todo-o-nada.
+
+Nada de esto era visible: `diaria_book_performance()` devolvía `update=True` aunque no hubiera
+insertado una sola fila, así que `schedule_diario` estampaba `diaria_BotCrypto` en
+`tmp/agents_schedule.json` y logueaba *"procesada OK"*. Y como `accion="diaria_app"` **no
+reconstruye hacia atrás**, cada día estampado se perdía para siempre.
+
+**Los dos arreglos:**
+
+| Archivo | Cambio |
+|---|---|
+| `Modulos_Comunes.py` — `detalle_book()` | `elif categoria in ("Crypto", "BotCrypto"):` — mismo idiom que ya usaba `vehiculo_parm()` |
+| `Modulos_Comunes.py` — `diaria_book_performance()` | `update = bool(diaria)` + WARNING: sin filas insertadas el día **no** está procesado y la key no se estampa |
+
+**Efecto lateral aceptado del segundo:** en feriado de mercado sin datos nuevos el schedule
+reintenta cada 3 h y loguea el WARNING en vez de estampar. Es ruido; perder el día en silencio
+era el daño real.
+
+**La serie histórica quedó mal desde el origen.** Con la categoría rota los valores salieron de
+un ticker mal resuelto: el 27/08 DOGEUSDT figuraba con `value = 46756` sobre 402 unidades
+(close implícito 116 USD) cuando el close real de Binance era **0,08137** → ~33 USD. Toda la
+`diaria_performance` de B0000002 entre 2026-02-07 y 2026-08-27 está inflada en órdenes de
+magnitud y se reconstruye con
+`AppTest/run_rebuild_diaria_cartera.py --account B0000002 --vehiculo BotCrypto --desde 2026-02-07 --ejecutar`.
+
+---
+
 ## 10. Tabla `otros_activos`
 
 ```sql
