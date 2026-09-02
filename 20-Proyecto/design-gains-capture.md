@@ -728,6 +728,26 @@ original como referencia histórica de los pasos ejecutados, no como pendiente.
 
 ### Paso 7 — `Class_debugging.py`
 - Registrar logger `"GainsCapture"` con `setLevel(WARNING)`
+- Ruteado a `agentes_venta.log`, el mismo archivo que Preservation — se leen en una sola línea de
+  tiempo porque se cruzan por el gate H5
+
+#### Apertura de corrida (2026-09-02)
+
+`_gains_capture_run()` abre cada corrida con dos líneas a WARNING, simétricas a las de Preservation:
+
+```
+GainsCapture(Stock): REVISIÓN | min_roi=20% | min_gan=200 | modo=SUPERVISADO
+GainsCapture(Stock): 40 posiciones | 12 en ganancia | 3 con categoriaActivo='N'
+```
+
+**Por qué.** El agente era mudo. Todos sus caminos de descarte son `continue` sin log —
+`categ != "N"` sale a `.debug`, y `not list_gain` / `not lotes_validos` no dicen nada — así que en
+`agentes_venta.log` no escribía una sola línea. Medido el 2026-09-01: **0 de 54 líneas** en dos días
+de corridas cada 1800s. Con eso **no se distingue "corrió y no había candidatos" de "no corrió"**,
+que es exactamente el silencio que el docstring del propio agente critica de H6.
+
+`Agente_GainsCapture` también pasó a usar el logger `"GainsCapture"` en vez de `self.logger`: el
+SKIP por sesión inactiva y el `except` iban al log común, fuera del archivo del módulo.
 
 ---
 
