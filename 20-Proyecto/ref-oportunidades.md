@@ -4,8 +4,8 @@ description: Sistema BUY/SELL — reglas, señales, umbrales, score híbrido TOP
 metadata:
   tipo: ref
   modulo: oportunidades
-  version: 2.0
-  fecha: 2026-06-29
+  version: 2.3
+  fecha: 2026-09-03
   status: activo
 ---
 
@@ -209,9 +209,91 @@ BD oportunidades (tipo='buy' / tipo='sell')
 
 ---
 
+## 8. Camino único de predicción
+
+El panel Sell IA y el agente daban **números distintos para la misma fila**. El agente llamaba a
+`enriquecer_con_sentimiento`; el panel no, y `predecir_modelo` rellenaba en silencio las cuatro
+columnas de sentimiento ausentes con `0.0`. Medido sobre el CSV vivo: PBR 33% daba **0.9449** en el
+panel y **0.5705** en el agente. En BUY el desvío va al revés — el panel subreporta (PFLT 0.470 vs
+0.694 real), así que con umbral 0.65 mostraba 3 COMPRAR donde el camino real da 5.
+
+Hoy los dos consumen `ModeloOportunidades{Sell,Buy}.predecir_oportunidades(df, account, columnas_map)`,
+que hace la secuencia completa: `hash_id → rename → aplanar → sentimiento → modelo → merge por hash_id`.
+Cualquier atajo vuelve a separar los dos números.
+
+El relleno silencioso de features ya no es silencioso: `predecir_modelo` loguea las columnas que
+rellenó en el logger `ClassMoodeloIA` (WARNING).
+
+**Efecto secundario aprovechado:** `predecir_oportunidades` devuelve **todas** las filas con su
+confianza, no solo las aprobadas — de ahí sale la traza de la capa 3.
+
+**Punto abierto:** `load_sentiment_features(account)` carga una sola cuenta. El CSV de venta trae tres
+(`U4214563`, `BBVA0001`, `SANT0001`), así que las filas de las otras dos siguen prediciendo con
+sentimiento en `0.0`. Preexistente, no lo introdujo este cambio.
+
+---
+
+## 9. Trazabilidad — `json_detalle.capas`
+
+Una oportunidad de venta atraviesa 7 filtros. Cuando no llega a Telegram, la pregunta siempre era
+*cuál* la frenó, y no había forma de saberlo sin leer logs de tres módulos.
+
+| # | Capa (clave en el JSON) | Filtro |
+|---|---|---|
+| 1 | `1_csv_OptionSales_write` | piso por vehículo — Stock: ROI ≥9%, ganancia ≥$90 |
+| 2 | `2_Agente_ManagerSell` | lee el CSV sin filtrar (cada 15s) |
+| 3 | `3_evaluar_oportunidades_sell_con_IA` | técnicos + sentimiento → modelo → confianza ≥ 0.65 |
+| 4 | `4_oportunity_handler_sell` | inserta en `oportunidadesbuysell` — acá sí o sí queda registro |
+| 5 | `5_gate_menu` | `MostrarOpcionMenu_enTelegram == "Sell"` |
+| 6 | `6_Agente_message_Manager_sell` | mejora de ROI, tiempo mínimo, gate Consenso |
+| 7 | `7_opportunity_handler_message_sell` | calendario del vehículo → Telegram |
+
+Cada casillero es `{"ok": bool, "dato": "<motivo o valor medido>"}`. Cada capa se anota **donde
+realmente decide** — no hay un lugar central que reconstruya el resultado.
+
+```json
+"capas": {
+  "1_csv_OptionSales_write":             {"ok": true,  "dato": "roi 26.10% | ganancia 94.93"},
+  "2_Agente_ManagerSell":                {"ok": true},
+  "3_evaluar_oportunidades_sell_con_IA": {"ok": false, "dato": "confianza 0.57 vs umbral 0.65"}
+}
+```
+
+**No toca `timestamp`.** `actualizar_capas()` usa `JSON_SET` sobre `$.capas` solamente, mientras que
+`actualizar_oportunidad()` pisa `timestamp = NOW()` en sus dos ramas. Esa distinción es lo que permite
+seguir usando el `timestamp` como señal de diagnóstico: fue una fila de venta congelada a las 18:14
+mientras las compras marcaban 20:12 lo que probó que el pipeline de venta había dejado de producir.
+Anotar una capa no es una corrida.
+
+**Escribe solo cuando cambia el veredicto.** `Agente_ManagerSell` no tiene `@wait_rate`: corre dentro
+del loop de `agentesIA()` con `time.sleep(15)`, todo el día → **5.760 ciclos/día**. Con 23 filas en el
+CSV de venta, escribir en cada pasada serían **~132.000 UPDATE/día**.
+
+La firma en memoria (`_capas_ultimo`) toma **solo los `ok`, nunca el `dato`**. Es la parte que importa:
+el `dato` de la capa 1 es `roi 26.10% | ganancia 94.93` — valores vivos que se mueven con cada tick, así
+que una firma sobre el JSON completo cambia casi siempre y el candado no frena nada. Con la firma sobre
+el veredicto, el volumen queda acotado por los cambios de estado, no por los ciclos.
+
+**Consecuencia a tener presente:** el `dato` guardado es el del momento en que el veredicto cambió por
+última vez, no el actual. Es una foto del porqué, no un valor en vivo — para el valor vigente están
+`roi` y `profit` del mismo `json_detalle`, que sí se refrescan en cada corrida.
+
+**Límites conocidos:**
+
+- **El orden real no es 6→7.** En el código el gate de calendario (capa 7) corre *antes* que
+  `Agente_message_Manager_sell` (capa 6). La numeración se conserva porque es la que se usa para leer
+  el flujo; en el JSON eso se ve como un `7:false` sin `6` cuando el mercado está cerrado.
+- **Una fila descartada en capa 3 solo deja rastro si ya tiene oportunidad en BD.** La fila nace en la
+  capa 4; un símbolo que nunca la alcanzó no tiene dónde escribir. Ese caso es de
+  `symbol_decision_history` y quedó fuera.
+- **Solo SELL.** BUY tiene otros nombres de capa.
+
+---
+
 ## Historial
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| 2.3 | 2026-09-03 | Camino único de predicción (panel = agente) + traza de las 7 capas en `json_detalle.capas` |
 | 2.2 | 2026-08-22 | Gate de calendario en los message handlers — no se notifica vehículo cerrado |
 | 2.1 | 2026-08-22 | Umbral SELL por CLASE y por vehículo (`gains_oportunidades`), fail-open cerrado en `readCSV_sell` |
 | 2.0 | 2026-06-29 | Unificación buy+sell, score híbrido TOP10, elimina duplicados |
