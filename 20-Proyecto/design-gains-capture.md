@@ -737,8 +737,13 @@ original como referencia histórica de los pasos ejecutados, no como pendiente.
 
 ```
 GainsCapture(Stock): REVISIÓN | min_roi=20% | min_gan=200 | modo=SUPERVISADO
-GainsCapture(Stock): 40 posiciones | 12 en ganancia | 3 con categoriaActivo='N'
+GainsCapture(Stock): 40 posiciones | 12 en ganancia | 3 con categoriaActivo='N' |
+                     account=U4214563 | cuentas=U4214563
 ```
+
+`account` es la cuenta con la que corre el agente y `cuentas` las que traen las posiciones
+(`useraccount`). Van juntas a propósito: si no coinciden, todo lo que se consulte por cuenta vuelve
+vacío sin levantar excepción — ver § "La cuenta que se logueaba era la de Stock".
 
 **Por qué.** El agente era mudo. Todos sus caminos de descarte son `continue` sin log —
 `categ != "N"` sale a `.debug`, y `not list_gain` / `not lotes_validos` no dicen nada — así que en
@@ -786,6 +791,18 @@ información.
 
 Efecto medido en el formato: de ~288 líneas/día por los dos vehículos a ~2 por reinicio más una por
 cambio real.
+
+#### La cuenta que se logueaba era la de Stock (2026-09-06)
+
+La línea de posiciones reportaba `account=U4214563 | cuentas=B0000001` corriendo sobre Crypto.
+`self.account` sale de `self.sesion["idcuenta"]` con `self.vehiculo = "Stock"` fijado en el
+`__init__` de `Class_DashBot`: es una constante de la sesión Stock, no la cuenta del vehículo que
+corre. Ahora sale de `get_sesion_by_vehiculo(vehiculo)["idcuenta"]`.
+
+**En GainsCapture el error era solo del log.** El trabajo real nunca usó `self.account`: la cuenta de
+cada símbolo sale de `conid_map`, que se arma con el `useraccount` de la propia posición. En
+Preservation el mismo `self.account` sí entraba al cálculo y dejaba a Crypto sin emitir ni un STOP —
+ver `design-preservation.md` § "La cuenta del agente era siempre la de Stock".
 
 ---
 

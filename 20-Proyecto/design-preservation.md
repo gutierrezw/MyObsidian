@@ -781,6 +781,35 @@ Es deliberado — al reiniciar, la primera corrida es justamente la que hay que 
 Efecto sobre la muestra medida: de 114 líneas a ~15 en los mismos tres días (tres arranques × cinco
 líneas), sin perder ninguna corrida distinta.
 
+### La cuenta del agente era siempre la de Stock (2026-09-06)
+
+Segunda causa del mismo síntoma que la doble conversión, un escalón más adelante: con el ATR ya
+resuelto, Crypto seguía sin emitir un solo STOP porque **la cantidad volvía en 0**.
+
+```
+Preservation(Crypto): 12 posiciones cargadas | account=U4214563 | cuentas=B0000001
+Preservation(Crypto/BNBUSDT): sin lotes en ganancia para la clase 33% | lotes de account=U4214563 → SKIP
+```
+
+`AgentManager` recibe la cuenta en el constructor y `Class_DashBot` se la pasa desde
+`self.account`, que sale de `self.sesion["idcuenta"]` con `self.vehiculo = "Stock"` fijado en
+`__init__`. Es decir: **una constante de la sesión Stock**, sin relación con el vehículo que corre.
+`preservation_calc_qty(self.account, "Crypto", ...)` pedía los lotes de BNBUSDT bajo `U4214563` y
+recibía cero, así que todos los símbolos Crypto caían en `sin_lotes` sin error ni excepción.
+
+El fix es la regla del proyecto aplicada al pie de la letra —*`account` como parámetro en toda
+función que toque datos de cartera*—: la cuenta correcta ya estaba en el loop, es
+`positio["useraccount"]`, la de la posición que se está evaluando. Las dos líneas de log pasaron a
+`sesion_data["idcuenta"]` del vehículo y a ese mismo `account`.
+
+**La línea de "posiciones cargadas" hizo su trabajo.** Se agregó el 2026-09-04 justamente para dejar
+ver las dos cuentas juntas, y el descuadre se detectó leyéndola. Sin esa línea el síntoma visible
+seguía siendo "sin lotes en ganancia", que se lee como una posición que no califica y no como una
+consulta hecha contra la cuenta equivocada.
+
+Stock nunca estuvo afectado: ahí `self.account` y `useraccount` coinciden, que es exactamente por
+qué el error sobrevivió hasta que Crypto entró al loop.
+
 ### Preservation Crypto no podía evaluar ningún símbolo — doble conversión (2026-09-04)
 
 Encontrado leyendo `agentes_venta.log`: BNBUSDT calificaba y moría en el mismo paso, 9 corridas
