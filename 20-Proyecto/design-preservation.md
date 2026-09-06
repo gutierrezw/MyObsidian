@@ -750,6 +750,37 @@ mismo path pelean la rotación y en Windows uno de los dos falla al renombrar.
 El nivel se sigue cambiando desde el panel Debugging: actúa sobre los mismos objetos
 `logging.getLogger("Preservation")` / `("GainsCapture")`.
 
+### La corrida muda no se escribe — dedup de Preservation (2026-09-06)
+
+Medido sobre `agentes_venta.log` entre el 2026-09-04 08:15 y el 2026-09-06 05:45: **114 líneas de
+`Preservation(Crypto)` en 23 corridas**, y las 23 decían exactamente lo mismo — 12 posiciones, un
+solo símbolo por encima de `roi_minimo` (BNBUSDT) y el mismo SKIP. Con una revisión cada 2h el
+archivo crece cinco líneas por corrida sin que nada haya cambiado, y el evento que sí importa queda
+enterrado.
+
+Preservation adopta el mecanismo que GainsCapture ya tenía (`_gc_run_log`, commit `eef4873`), no uno
+nuevo:
+
+- Las líneas repetitivas se **difieren** en un buffer en vez de escribirse (`_diferir()`): "posiciones
+  cargadas", `→ evaluando`, los cuatro SKIP por símbolo, el `SMA20 no disponible` y la línea de "sin
+  cambio". Nada se pierde: se escriben todas juntas cuando la corrida resulta distinta.
+- La huella de la corrida es `(_desc, [(symbol, tag)])` con **tags cortos** (`sin_lotes`,
+  `protege_poco`, `comprometida`, `sin_atr`, `sin_precio`, `sin_cambio`), no el texto del mensaje: el
+  texto lleva el ROI y el `last` del momento, que cambian siempre y anularían el dedup.
+- Igual a la anterior → se cuenta en silencio. Distinta → se vuelca el buffer y el CIERRE agrega
+  `repetidas=N`.
+- Un **hecho real fuerza la escritura**: emitir o modificar un STOP, cancelar por EXIT, o cualquier
+  excepción del loop llaman a `_flush()`, que vacía el buffer *antes* del evento para que quede con
+  su contexto.
+- `REVISIÓN` baja a `.debug()` — decía lo mismo que "config cargada" en cada corrida. La constancia de
+  que el agente corrió la da el CIERRE.
+
+`_pres_run_log` es memoria de proceso: cada arranque de la app vuelve a escribir la corrida completa.
+Es deliberado — al reiniciar, la primera corrida es justamente la que hay que poder leer.
+
+Efecto sobre la muestra medida: de 114 líneas a ~15 en los mismos tres días (tres arranques × cinco
+líneas), sin perder ninguna corrida distinta.
+
 ### Preservation Crypto no podía evaluar ningún símbolo — doble conversión (2026-09-04)
 
 Encontrado leyendo `agentes_venta.log`: BNBUSDT calificaba y moría en el mismo paso, 9 corridas
