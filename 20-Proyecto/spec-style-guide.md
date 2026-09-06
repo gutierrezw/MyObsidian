@@ -88,6 +88,46 @@ trae la clave `session_colors` (mismo patrón que `bgcolor`/`cgcolor`/`cchart`).
 | `danger` | `#c0392b` (rojo) | Sesión de peligro / emergencia |
 | `nested` | `#546e7a` (gris-azulado claro) | Subsección anidada (un nivel debajo de una sesión) |
 
+## Regla 6 — Importes largos: `mask_numero()`
+
+Todo importe que se muestre en un panel o grid pasa por `mask_numero()`
+(`Modulos_Utilitarios.py`). Escala a **K / M / B / T** para que entre en el ancho de la columna sin
+perder el orden de magnitud. No se crea un formateador por pantalla: el que existía para el Screener
+se extendió con `decimales`, `ancho` y `base`.
+
+```python
+mask_numero(12617179.29, decimales=2, ancho=11, base=2)   # -> "     12.62M"
+mask_numero(-36519, ancho=6, base=0)                      # -> "-36.5K"
+```
+
+| Parámetro | Qué hace |
+|---|---|
+| `decimales` | Decimales del tramo escalado (default 1) |
+| `ancho` | Alinea a derecha en ese ancho; `0` devuelve el texto pelado |
+| `base` | Decimales del tramo `< 1.000`. **Sin `base` devuelve `str(numero)`** — es el comportamiento del que depende el Screener, por eso es el default |
+
+Un valor no numérico vuelve intacto: el header del panel mezcla importes con texto (`Conexión`,
+`%Mrg/Risk`) y la fila de totales trae celdas en blanco.
+
+**La regla que no se puede romper: el mask se aplica al texto que se pinta, nunca al dato.** Los
+importes del panel se releen como número y se suman entre sí — `self.resumen` pasa por `float()` en
+Cash y Dividendos (`Class_customer.py`), `create_styles()` decide el color contra `row[idx]`
+numérico y la fila de totales se calcula sobre los números, no sobre lo que se ve. Guardar el string
+enmascarado rompe esas tres cuentas en silencio, porque el `try/except` de cada método se traga el
+`ValueError`. Por eso `set_header_panel()` sigue guardando `"{:>11.2f}"` y el mask vive en el
+`.config(text=...)` y en el `values=` del Treeview.
+
+**Qué se enmascara y qué no.** Se enmascara lo que es magnitud: `dGyP`, `Valor liq.`, `Debit`,
+`UnProfit`, `UnPyl`, `Dividendos`, `Cash`, `costobase`, `ValueMkt`, `GyP`. **No** se tocan
+`mktPrice`, `AvgCost`, `Objetivo` ni `%ROI`: son precios de decisión y ahí el decimal es el dato.
+Las claves del header viven en `PANEL_CAMPOS_MONETARIOS` (`Modulos_Utilitarios.py`), al lado de
+`POSICION_CAMPOS_MONETARIOS`.
+
+Los importes que se comparan entre sí van con `decimales=2`, no con el default. Con un decimal
+`Valor liq.` (12617179.29) y `costobase` (12592650.03) se muestran **los dos** como `12.6M`, y la
+diferencia entre ambos es justamente el dGyP del día. El label grande de dGyP sí queda en un decimal
+— se lee de un vistazo, no se compara contra nada.
+
 ## Estado de la migración
 
 | Ventana | Fuente | Botón | Entry | Sesiones (`ui_section_bar`) | Estado |
