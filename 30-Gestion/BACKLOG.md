@@ -56,7 +56,7 @@ Historial de versiones al final del archivo.
 - **Qué se enmascara:** `dGyP`, `Valor liq.`, `Debit`, `UnProfit`, `UnPyl`, `Dividendos`, `Cash`, `costobase`, `ValueMkt`, `GyP`. **Qué no:** `mktPrice`, `AvgCost`, `Objetivo`, `%ROI` — son precios de decisión y ahí el decimal es el dato. Las claves del header viven en `PANEL_CAMPOS_MONETARIOS`, al lado de `POSICION_CAMPOS_MONETARIOS`.
 - **Dos decimales, no uno, en lo que se compara entre sí:** con un decimal `Valor liq.` (12617179.29) y `costobase` (12592650.03) se muestran **los dos** como `12.6M` y la diferencia entre ambos es justamente el dGyP del día. El label grande de dGyP sí queda en un decimal — se lee de un vistazo, no se compara contra nada.
 - **Doc:** `20-Proyecto/spec-style-guide.md` **Regla 6 — Importes largos**.
-- **Estado:** comiteado el 2026-09-06 — `dc229cf` (MyPython). **Sin verificar en pantalla** — requiere reiniciar AppOO.
+- **Estado:** CERRADO — comiteado el 2026-09-06 (`dc229cf`, MyPython) y **verificado en pantalla ese mismo día**, conforme el usuario.
 
 ### v5.3 — 2026-09-04
 **Revisión de `agentes_venta.log`: un defecto real y 96% de ruido — CORREGIDOS:**
