@@ -750,6 +750,36 @@ mismo path pelean la rotación y en Windows uno de los dos falla al renombrar.
 El nivel se sigue cambiando desde el panel Debugging: actúa sobre los mismos objetos
 `logging.getLogger("Preservation")` / `("GainsCapture")`.
 
+### Preservation Crypto no podía evaluar ningún símbolo — doble conversión (2026-09-04)
+
+Encontrado leyendo `agentes_venta.log`: BNBUSDT calificaba y moría en el mismo paso, 9 corridas
+seguidas cada 2h entre el 2026-09-03 11:37 y el 2026-09-04 03:37.
+
+```
+Preservation(Crypto/BNBUSDT): ROI=18.4% ≥ 18% → evaluando
+Preservation(Crypto/BNBUSDT): datos insuficientes (0 rows, CacheHut + yfinance) → SKIP
+```
+
+`get_yfinance(vehiculo="Crypto")` **espera el símbolo Binance** (`BNBUSDT`): convierte internamente
+para `yf.Ticker` y pasa el `ticket` crudo a `get_klines_info()`, que consulta Binance.
+`preservation_get_atr()` y `preservation_get_sma()` lo pre-convertían:
+
+```python
+ticket = convierte_ticket_crypto(symbol) if vehiculo == "Crypto" else symbol   # ← sobraba
+result = get_yfinance(ticket=ticket, vehiculo=vehiculo, period="6mo", interval="1d")
+```
+
+Binance recibía `BNB-USD` y devolvía 0 filas. El fallo es silencioso porque
+`convierte_ticket_crypto()` es idempotente sobre `BNB-USD` (ya no hay `USDT` que reemplazar), así
+que la mitad yfinance seguía funcionando y nada levantaba excepción — solo el `return None,
+"datos insuficientes"` del propio helper, que el loop trata como SKIP normal.
+
+Afectaba a los **dos** helpers, que son los que calculan ATR y SMA20: sin ellos no hay stop, así que
+**ningún símbolo Crypto podía llegar a evaluarse**. Corregido pasando `symbol` directo. No pasó
+inadvertido antes porque Crypto entró al loop recién el 2026-08-31 y en DRY-RUN.
+
+Stock nunca estuvo afectado: la rama `else` ya pasaba el símbolo sin tocar.
+
 ### Lo que falta antes de sacar el DRY-RUN
 
 - ~~**Ventana 9-16h**~~ — **RESUELTO 2026-08-31** (§ "La ventana deja de estar en duro"). La franja

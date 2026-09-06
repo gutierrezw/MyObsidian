@@ -749,6 +749,44 @@ que es exactamente el silencio que el docstring del propio agente critica de H6.
 `Agente_GainsCapture` también pasó a usar el logger `"GainsCapture"` en vez de `self.logger`: el
 SKIP por sesión inactiva y el `except` iban al log común, fuera del archivo del módulo.
 
+#### La apertura se emitía en cada corrida — corregido el 2026-09-04
+
+La apertura resolvió el silencio pero lo cambió por ruido: el agente corre cada 1800s sobre dos
+vehículos, así que las tres líneas por corrida (REVISIÓN + posiciones + CIERRE) daban **~288
+líneas/día** y las tres eran idénticas entre corridas. Medido sobre `agentes_venta.log` el
+2026-09-04: **455 de 711 líneas** en los dos días posteriores al deploy, de las cuales ~30 eran
+señal. El CIERRE es la única con contenido —responde qué descarte manda la calibración— y también
+repetía la misma respuesta ~48 veces por día.
+
+No se revierte la apertura: sigue haciendo falta distinguir "corrió y no había candidatos" de "no
+corrió". Lo que cambia es **cuándo habla**.
+
+**1. La config se loguea al cargarla, no en cada corrida** — el mismo patrón que Preservation ya
+usaba con su línea `config cargada`. `self._gc_config_log[vehiculo]` guarda la tupla
+`(min_roi, min_ganancia, modo)`; solo se emite cuando cambia:
+
+```
+GainsCapture(Stock): config cargada | min_roi=20% | min_gan=200 | modo=SUPERVISADO
+```
+
+**2. El par posiciones + CIERRE se emite solo cuando cambia el desglose.**
+`self._gc_run_log[vehiculo]` guarda `(posiciones, en_ganancia, candidatos, _desc)` de la última
+corrida **logueada** y un contador de corridas mudas. Cuando algo se mueve, la línea sale con
+`repetidas=N` — cuántas corridas idénticas hubo antes:
+
+```
+GainsCapture(Stock): CIERRE | sin lotes en ganancia=0 | ningun lote llega a min_roi=12 |
+                     ningun escenario llega a min_ganancia=1 | repetidas=47
+```
+
+Es el mismo criterio que `symbol_decision_history.veces`: colapsar repeticiones consecutivas y
+guardar el conteo, en vez de escribir N veces el mismo hecho. El estado vive en memoria del proceso
+— tras un reinicio la primera corrida vuelve a emitir todo, que es lo correcto: un reinicio es
+información.
+
+Efecto medido en el formato: de ~288 líneas/día por los dos vehículos a ~2 por reinicio más una por
+cambio real.
+
 ---
 
 ## Pendientes / preguntas abiertas
