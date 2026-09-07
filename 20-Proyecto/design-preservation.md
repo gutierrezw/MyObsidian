@@ -781,13 +781,133 @@ Es deliberado — al reiniciar, la primera corrida es justamente la que hay que 
 Efecto sobre la muestra medida: de 114 líneas a ~15 en los mismos tres días (tres arranques × cinco
 líneas), sin perder ninguna corrida distinta.
 
+### El dedup se quedó sin latido — corregido el 2026-09-07
+
+No revierte el dedup de arriba: le pone un piso. Medido sobre `agentes_venta.log` entre el
+2026-09-06 06:45 y el 2026-09-07 07:39 (25h): **`Preservation(Crypto)` escribe por última vez a las
+13:46 y después calla 18 horas seguidas**, con el agente corriendo cada 2h todo ese tiempo.
+
+No estaba caído: la corrida es siempre idéntica —12 posiciones, BNBUSDT único evaluado, `evaluados=1
+| ROI<18%=11 | ganancia<20=0`— así que el dedup hacía `return` sin escribir nada. Ni la línea, ni el
+contador.
+
+**El problema no es el ruido, es que el log dejó de responder una pregunta.** Con silencio absoluto
+*"sin cambios"* y *"el thread murió"* se ven igual, y la única forma de distinguirlos es leer el
+código: la ausencia total de líneas fue exactamente lo que hizo falta descartar a mano al analizar
+esa ventana.
+
+Preservation es el caso duro de los dos. GainsCapture zafaba por accidente: su desglose oscila
+—`min_roi=6/min_ganancia=5` ↔ `7/4` ↔ `5/6`, los mismos 11 símbolos saltando de categoría de
+descarte por movimiento de precio— así que rompe el empate solo cada tanto. Los contadores de
+Preservation no se mueven: un único evaluado que siempre protege de menos. Sin cambio en los
+contadores, silencio indefinido.
+
+**El fix es un latido, no una excepción al dedup.** Pasado `_LATIDO_SEG` (4h, constante de clase de
+`AgentManager`) la corrida repetida se escribe igual, con `repetidas=N` como único contenido nuevo.
+Con revisión cada 2h son ~6 líneas/día contra las ~60 de antes del dedup, y el archivo vuelve a
+tener un latido leíble.
+
+Se mide por **tiempo transcurrido desde la última escritura**, no por conteo de corridas mudas: el
+intervalo sale de `revisiones_dia` en `parameters` y puede cambiar sin que nadie recuerde recalibrar
+un tope de repeticiones. `_pres_run_log` pasa de `(snapshot, veces)` a `(snapshot, veces,
+ultima_escritura)`.
+
+### El stop de Crypto no protegía: límite pegado al disparador (2026-09-07)
+
+Detectado al revisar qué faltaba para sacar a Preservation de DRY-RUN. `preservation_build_trama()`
+armaba la trama Binance con **`price == stopPrice`**, los dos en el mismo valor.
+
+Un `STOP_LOSS_LIMIT` lleva dos precios: `stopPrice` dispara, y `price` es el límite de la orden LIMIT
+que se coloca al dispararse — vende a ese precio **o mejor, nunca peor**. Con los dos iguales, el
+precio que activó el stop ya siguió bajando y no hay comprador al límite: la orden queda colgada sin
+llenarse mientras la posición sigue perdiendo. **Cuanto más violenta la caída, menos protege** — al
+revés de para qué existe el agente.
+
+Segundo daño, menos visible: la orden queda viva en el libro (GTC) a un precio que el mercado dejó
+atrás, y el gate H5 la cuenta como cantidad comprometida. Esas monedas quedan bloqueadas para
+GainsCapture y para una venta manual hasta que alguien la cancele.
+
+No se detectó antes porque en DRY-RUN nunca se envió ninguna.
+
+**La holgura es `parameters.preservation.stop_limit_pct`, default 0.01.** Stock ya lo hacía bien pero
+con el `0.99` en duro; ahora los dos vehículos usan el mismo parámetro, así se afina por volatilidad
+sin tocar código y no quedan dos criterios para el mismo concepto. Con el default el comportamiento
+de Stock no cambia.
+
+**Crypto necesita además una guarda de tick.** `quantiza_precio()` trunca al `tickSize`, y en un
+símbolo cuyo tick es grueso frente al precio, `stop * (1 - pct)` puede caer en el mismo tick que el
+stop: el límite volvería a quedar pegado al disparador y nada lo avisaría. Si la holgura no separa al
+menos un tick, se resta un tick explícito.
+
+Efecto sobre el caso del log (BNBUSDT, `stop=722.38`): `stopPrice=722.38`, `price=715.15`. Dispara
+igual y acepta llenarse hasta 715.15.
+
+Poner `stop_limit_pct` en 0 deja el límite pegado en Stock y reduce la holgura de Crypto a un tick.
+No se valida en código — es la misma perilla que `atr_mult` o `proteccion_base`.
+
+### Una orden Binance sin confirmar bloqueaba el símbolo para siempre (2026-09-07)
+
+Tercer freno del mismo repaso: qué falta para sacar a Preservation de DRY-RUN.
+
+Cuando Preservation manda el STOP y el broker no devuelve `order_id`, la fila se escribe con
+`sync_broker='SIN_CONFIRMAR'`. Es deliberado: la orden puede estar viva y no tenemos con qué
+identificarla, así que el gate cruzado H5 la cuenta como comprometida sin mirar `status`
+(`select_pending_orders`). Bloquear de más es barato; comprometer acciones que no existen es lo que
+H5 existe para evitar.
+
+Lo que faltaba era la salida. `resolve_unconfirmed_orders()` es quien desbloquea, y no llegaba a
+Crypto por dos motivos independientes:
+
+1. **No se la llamaba.** Cuelga de la rama IB de `Agente_SyncOrders`, con `self.account` — la de
+   Stock. La rama Binance solo llamaba `sync_orders_from_binance()`. Como el `SELECT` filtra por
+   `account`, una fila de Crypto ni siquiera se leía.
+2. **Consultaba IB en duro** — `ib_client.get_preservation_stops()` — y reconstruía el disparo como
+   `price / 0.99`.
+
+El efecto no era un retraso: era permanente. Sin leer la fila tampoco se alcanzaba la rama que la
+marca `HUERFANA` tras la hora de gracia, así que el símbolo quedaba comprometido para Preservation
+**y** para GainsCapture hasta tocar la BD a mano. Nunca se vio porque con DRY-RUN no se envía ninguna
+orden y no hay fila que confirmar.
+
+**Cómo quedó.** `Class_ApiBinnace` implementa `get_preservation_stops()` con el mismo contrato que IB
+—`{symbol, order_id, stop_price, status}`, filtrando `STOP_LOSS_LIMIT` / SELL / GTC / NEW—, así que el
+método recibe `client` y `vehiculo` y no sabe contra qué broker cruza. `Agente_SyncOrders` lo llama en
+las dos ramas, cada una con su `account`.
+
+El disparo dejó de reconstruirse desde `price`: sale de `json_detalle.resultado.stop_final`, que es el
+valor exacto que se envió. La división por 0.99 daba por fija una holgura que ahora se afina por
+vehículo con `stop_limit_pct` — quedaba mal apenas se cambia el parámetro, y mal hacia atrás para las
+filas ya escritas. Las filas viejas sin ese dato caen al cálculo anterior. La tolerancia pasó a
+relativa (0,5%): un margen fijo de centavos no significa lo mismo en una acción de 700 que en una
+cripto de 0,0004.
+
+**El reintento `[RETRY-OK]` también dejó de ser solo de Stock.** Era `if not order_id and vehiculo ==
+"Stock"` porque solo IB exponía el método; con el contrato uniforme corre para los dos. Es el freno más
+barato de la cadena: si el `order_id` se recupera ahí, no se llega a escribir la fila `SIN_CONFIRMAR`.
+
+**Y la fila dejó de mentir sobre el precio.** Los dos caminos de escritura recalculaban el límite como
+`stop_final * 0.99` en vez de leerlo de la trama que efectivamente se envió — la que ya aplicó
+`stop_limit_pct` y, en Crypto, la quantización a tickSize con su guarda. La fila decía un precio que el
+broker nunca recibió, y era justamente el precio contra el que se intentaba cruzar. Ahora sale de
+`trama["pedido"]`. `orderType` sigue siendo `"STP LMT"` para los dos vehículos a propósito: es el
+nombre canónico de `order_trader` para un stop-limit y hay consumidores que filtran por él
+(`Modulos_Mysql.py`, `DashMain.py`); además la columna es `char(10)` y `"STOP_LOSS_LIMIT"` no entra.
+
+Medido al cerrar: no había ninguna fila `SIN_CONFIRMAR` viva —236 Crypto y 134 Stock, todas `OK`—, así
+que no quedó nada que destrabar hacia atrás.
+
+Con esto los tres frenos que la docstring del coordinador listaba para Crypto quedan cerrados: la
+ventana sale de `parameters.preservation` (Crypto ya trae 0-24h), el límite se separa del disparador
+por `stop_limit_pct`, y las órdenes sin confirmar se resuelven en los dos vehículos. Lo que sigue
+abierto ya no es específico de Crypto — ver la lista de § "Lo que falta antes de sacar el DRY-RUN".
+
 ### La cuenta del agente era siempre la de Stock (2026-09-06)
 
 Segunda causa del mismo síntoma que la doble conversión, un escalón más adelante: con el ATR ya
 resuelto, Crypto seguía sin emitir un solo STOP porque **la cantidad volvía en 0**.
 
 ```
-Preservation(Crypto): 12 posiciones cargadas | account=U4214563 | cuentas=B0000001
+Preservation(Crypto): 12 posiciones cargadas | account=U4214563   (posiciones en B0000001)
 Preservation(Crypto/BNBUSDT): sin lotes en ganancia para la clase 33% | lotes de account=U4214563 → SKIP
 ```
 
@@ -800,7 +920,17 @@ recibía cero, así que todos los símbolos Crypto caían en `sin_lotes` sin err
 El fix es la regla del proyecto aplicada al pie de la letra —*`account` como parámetro en toda
 función que toque datos de cartera*—: la cuenta correcta ya estaba en el loop, es
 `positio["useraccount"]`, la de la posición que se está evaluando. Las dos líneas de log pasaron a
-`sesion_data["idcuenta"]` del vehículo y a ese mismo `account`.
+ese mismo `account`.
+
+El log llegó a mostrar las dos cuentas a la vez —`account=` de la sesión y `cuentas=` de las
+posiciones— para hacer visible el descuadre. Corregido el error son el mismo dato, así que quedó
+una sola: `account=`, con el `useraccount` de las posiciones, que es el que se usa para consultar
+los lotes.
+
+El contraste entre las dos no se perdió, cambió de forma: `sesion_data["idcuenta"]` se sigue
+leyendo —ya estaba en memoria para `gainInversion`— y se compara contra las cuentas de las
+posiciones. Si no está entre ellas se loguea a **ERROR** con las dos. Depender de que alguien
+leyera las dos cuentas en cada corrida fue lo que dejó el descuadre vivo dos días.
 
 **La línea de "posiciones cargadas" hizo su trabajo.** Se agregó el 2026-09-04 justamente para dejar
 ver las dos cuentas juntas, y el descuadre se detectó leyéndola. Sin esa línea el síntoma visible
@@ -853,10 +983,14 @@ Stock nunca estuvo afectado: la rama `else` ya pasaba el símbolo sin tocar.
   que es exactamente el momento en que se sale del DRY-RUN. Anotado el 2026-08-31 para resolverlo
   aparte: el arreglo es chico pero mueve el orden de un método bajo observación en producción, y no
   se quiso mezclar con el cambio de ventana. → BACKLOG #84.
-- **`resolve_unconfirmed_orders()` solo consulta IB** (§ "El STOP fantasma"). Una fila Crypto
-  `SIN_CONFIRMAR` no se resuelve nunca y bloquea el símbolo en el gate cruzado para siempre.
-- **`price == stopPrice`** en la rama Crypto de `preservation_build_trama` — Stock usa `stop * 0.99`.
-  En una caída rápida un límite pegado al stop no llena.
+- ~~**`resolve_unconfirmed_orders()` solo consulta IB**~~ — **RESUELTO 2026-09-07**
+  (§ "Una orden Binance sin confirmar bloqueaba el símbolo para siempre"). Binance implementa el mismo
+  `get_preservation_stops()` que IB, el método recibe `client` y `vehiculo`, y `Agente_SyncOrders` lo
+  llama en las dos ramas. El disparo se cruza contra `json_detalle.resultado.stop_final`, no contra
+  `price / 0.99`.
+- ~~**`price == stopPrice`**~~ — **RESUELTO 2026-09-07** (§ "El stop de Crypto no protegía"). La holgura
+  es `stop_limit_pct` de `parameters.preservation`, con guarda de un tick en Crypto. Stock quedó sobre
+  el mismo parámetro con el default 0.01, sin cambio de comportamiento.
 - **Colateral del préstamo** — Crypto tiene bloques `loan`/`ltv`. Un `STOP_LOSS_LIMIT` sobre saldo
   comprometido como colateral lo rechaza Binance. Sin verificar contra `crypto_wallet_free()`.
 - **Contexto Claude vacío** — `select_preservation_context()` lee `market`, donde no hay símbolos

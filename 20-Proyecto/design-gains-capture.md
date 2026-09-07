@@ -738,12 +738,12 @@ original como referencia histórica de los pasos ejecutados, no como pendiente.
 ```
 GainsCapture(Stock): REVISIÓN | min_roi=20% | min_gan=200 | modo=SUPERVISADO
 GainsCapture(Stock): 40 posiciones | 12 en ganancia | 3 con categoriaActivo='N' |
-                     account=U4214563 | cuentas=U4214563
+                     account=U4214563
 ```
 
-`account` es la cuenta con la que corre el agente y `cuentas` las que traen las posiciones
-(`useraccount`). Van juntas a propósito: si no coinciden, todo lo que se consulte por cuenta vuelve
-vacío sin levantar excepción — ver § "La cuenta que se logueaba era la de Stock".
+`account` sale del `useraccount` de las posiciones — la cuenta con la que efectivamente se
+consultan los lotes, no la de la sesión del agente. Ver § "La cuenta que se logueaba era la de
+Stock".
 
 **Por qué.** El agente era mudo. Todos sus caminos de descarte son `continue` sin log —
 `categ != "N"` sale a `.debug`, y `not list_gain` / `not lotes_validos` no dicen nada — así que en
@@ -792,12 +792,46 @@ información.
 Efecto medido en el formato: de ~288 líneas/día por los dos vehículos a ~2 por reinicio más una por
 cambio real.
 
+#### El silencio no se distinguía de un agente caído — latido (2026-09-07)
+
+El dedup de arriba se queda sin piso cuando el desglose se estabiliza: la corrida repetida no
+escribe nada, ni la línea ni el contador, así que *"sin cambios"* y *"el agente dejó de correr"* se
+leen igual en el archivo. Pasado `_LATIDO_SEG` (4h, constante de clase de `ClassAgenteIA`) la
+corrida repetida se emite igual, con `repetidas=N` como único contenido nuevo.
+
+En GainsCapture el silencio nunca llegó a ser total —el desglose oscila entre `min_roi=6/
+min_ganancia=5`, `7/4` y `5/6`, los mismos 11 símbolos saltando de categoría de descarte por
+movimiento de precio, y esas escrituras no dicen nada— pero el mecanismo es el mismo y el caso duro
+se vio en Preservation, que estuvo 18h mudo el 2026-09-06 (ver `design-preservation.md` § "El dedup
+se quedó sin latido").
+
+Se mide por tiempo desde la última escritura, no por conteo de corridas mudas, para que un cambio de
+intervalo no obligue a recalibrar un tope. `_gc_run_log` pasa de `(snapshot, veces)` a `(snapshot,
+veces, ultima_escritura)`.
+
+**El SKIP de sesión no activa entra al mismo latido.** `Agente_GainsCapture: sesion Stock no activa
+→ SKIP (timer consumido)` se escribía cada 30 min las 24h y era **el 54% del archivo** (50 de 92
+líneas en la ventana medida) — el turno se consume igual de noche, cuando la sesión Stock no está
+activa. Lo que importa es que ocurre, no cuántas veces: ahora se emite una vez y se resume cada 4h
+con `repetidas=N`, de 48 líneas/día a 6 por vehículo.
+
 #### La cuenta que se logueaba era la de Stock (2026-09-06)
 
 La línea de posiciones reportaba `account=U4214563 | cuentas=B0000001` corriendo sobre Crypto.
 `self.account` sale de `self.sesion["idcuenta"]` con `self.vehiculo = "Stock"` fijado en el
 `__init__` de `Class_DashBot`: es una constante de la sesión Stock, no la cuenta del vehículo que
-corre. Ahora sale de `get_sesion_by_vehiculo(vehiculo)["idcuenta"]`.
+corre. Ahora sale del `useraccount` de las posiciones.
+
+**Las dos cuentas se mostraron juntas mientras hubo descuadre que hacer visible.** `account=`
+(sesión) y `cuentas=` (posiciones) se pusieron una al lado de la otra el 2026-09-04; corregido el
+error son el mismo dato, así que quedó una sola línea con `account=` = el `useraccount` de las
+posiciones, que es el que se usa para consultar los lotes.
+
+**El contraste no se perdió: pasó de línea informativa a control.** La cuenta de la sesión del
+vehículo se sigue leyendo y se compara contra las de las posiciones; si no está entre ellas se
+loguea a ERROR y ahí sí aparecen las dos. Un descuadre no levanta excepción —deja toda consulta
+por cuenta vacía— y el síntoma visible sería "sin lotes en ganancia", que se lee como una posición
+que no califica. Leer el contraste en cada corrida dependía de que alguien lo mirara; el ERROR no.
 
 **En GainsCapture el error era solo del log.** El trabajo real nunca usó `self.account`: la cuenta de
 cada símbolo sale de `conid_map`, que se arma con el `useraccount` de la propia posición. En
