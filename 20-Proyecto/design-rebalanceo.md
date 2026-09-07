@@ -81,6 +81,33 @@ Todo el flujo es:
 
 ---
 
+### El ranking de Crypto quedaba congelado en el arranque (2026-09-06)
+
+`ejecutar_rebalanceo()` solo reescribe `DataHub.rebalanceo[vehiculo]` si detecta cambios, y la
+comparacion miraba **gaps + cantidad de asignaciones**. Para Crypto las dos son constantes: los tres
+gaps activos (dividendos, tipos, regiones) dan **0.0000** en cada corrida y la asignacion es siempre
+una sola. La condicion se cumplia siempre, `hay_cambios` quedaba en `False` y el ranking nunca se
+volvia a escribir.
+
+Medido el 2026-09-06 en el tab Rebalanceo: con la app arrancada a las 12:01:21, el bloque Crypto
+llevaba timestamp **12:01:40** — 19 segundos despues del arranque, con `DataHub.info` a medio poblar.
+Solo 4 de las 12 posiciones tenian su metadata cargada, asi que el ranking era de **4 candidatos**
+encabezado por BNBUSDT. Cinco horas despues seguia siendo el mismo. Stock no lo sufria porque sus
+gaps tienen valor (0.5037 / 0.0224 / 0.3330) y se mueven.
+
+El efecto aguas abajo es que **no habia cryptos para etiquetar como compra**: `csv_OptionBuy_write()`
+toma los candidatos no-Stock de ese `ranking`, y BNBUSDT no tiene bloque `buy` — con `Pinvertir=20`
+sobre un precio de 747, `int(20/747)` da 0 unidades. ADAUSDT, FILUSDT, ZILUSDT e ICPUSDT **si** tenian
+su bloque de compra vivo en `DataHub.info` (visible en la ventana "Acumular Stock/Dividendos"), pero
+no estaban en la foto de los 19 segundos y el CSV nunca los veia. La capa 1 —`oportunidades_buy()`—
+funcionaba correctamente; el corte estaba en el guard.
+
+Hoy la comparacion incluye la **firma del ranking** (`symbol` + `score` redondeado a 4 decimales del
+top 10). Se compara la firma y no la lista completa porque el candidato lleva el bloque `impacto` con
+flotantes que cambian por ruido de precio y anularian la deteccion en el sentido contrario.
+
+---
+
 ## 5. Dimensiones de rebalanceo – Diseño vs Implementación
 
 ### 5.1 Dividendos
