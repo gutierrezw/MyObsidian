@@ -970,6 +970,62 @@ inadvertido antes porque Crypto entró al loop recién el 2026-08-31 y en DRY-RU
 
 Stock nunca estuvo afectado: la rama `else` ya pasaba el símbolo sin tocar.
 
+### La llamada a Claude se pagaba antes del gate que la descartaba (2026-09-09)
+
+`_preservation_run_vehiculo()` consultaba a Claude **antes** de saber si la posición podía siquiera
+pasar el gate de `ganancia_protegida`. El orden estaba invertido respecto de GainsCapture, que ya
+resuelve los escenarios con `maximiza_sell_lotes()` y descarta por `min_ganancia` **antes** de
+consultar — por eso GainsCapture dejó de gastar llamadas el 2026-08-25, cuando dejó de haber
+candidatos, y Preservation siguió gastando.
+
+| | llamada a Claude | gates deterministas |
+|---|---|---|
+| GainsCapture | `Class_DashBot.py:1141` | después de `maximiza_sell_lotes` y de `sin_escenario` |
+| Preservation (antes) | `Class_AgentManager.py:1160` | **antes** de `preservation_calc_qty` y del gate |
+
+**Eran descartes demostrables sin llamar.** Claude solo puede **subir** `stop_final`, y `stop_max =
+last - atr` lo capa unas líneas más abajo. El máximo que la posición puede llegar a proteger es
+entonces `qty * stop_max - costo_lotes`, y `qty`/`costo_lotes` salen de una consulta a BD, no de la
+API. Si ese techo no llega a `gainInversion`, ninguna respuesta lo da vuelta.
+
+Medido en `symbol_decision_history` (`agente='Preservation'`, `tag='CLAUDE'`): **64 evaluaciones
+entre 2026-08-28 y 2026-09-09** — BNBUSDT 51, PBR 12, BTG 1 — y cero órdenes emitidas en ese tramo.
+Las 64 murieron en el gate de más abajo. Con los precios del 2026-09-09, incluso suponiendo `atr = 0`
+(el caso más favorable posible):
+
+| | qty | costo lotes | techo máximo | `gainInversion` | |
+|---|---|---|---|---|---|
+| Crypto / BNBUSDT | 0,038 | $23,94 | **$4,82** | $20 | necesitaría BNB ~1156 (+53%) |
+| Stock / PBR | 14 | $240,50 | **$53,08** | $70 | necesitaría PBR ~22,18 (+5,8%) |
+
+**Lo caro no era el token.** La llamada es Haiku con ~700 tokens de prompt: centavos al mes. El costo
+real es `_build_preservation_context()`, que arma consenso, `inst_score`, 13F, analistas, sentimiento,
+RSI d/w, MACD, EMA200 y rangos 13/26w por símbolo — y para BNBUSDT ese contexto además llega casi
+todo en `N/D`, porque `market` no tiene símbolos Crypto (ver bullet "Contexto Claude vacío" abajo).
+Doce veces por día, para nada.
+
+**El arreglo es un reordenamiento, no un cambio de criterio.** `stop_max` y `preservation_calc_qty()`
+suben por encima del bloque de Claude y se agrega el gate del techo; el clamp `stop_final > stop_max`
+se queda donde estaba, después de Claude, que es donde `stop_final` puede haber subido.
+
+Es seguro por construcción: como `stop_final <= stop_max`, vale `ganancia_protegida <= techo_protegido`,
+así que **el gate nuevo solo rechaza lo que el viejo ya iba a rechazar**. Ninguna orden cambia. De
+paso el caso `qty <= 0` ("sin lotes en ganancia") tampoco gasta la llamada.
+
+Descarte nuevo en el log, con su propio tag de huella (`techo_corto`, separado de `protege_poco`
+para que el dedup distinga "no llegó" de "no podía llegar"):
+
+```
+Preservation(Crypto/BNBUSDT): techo 4.82 < gainInversion 20.00 | qty=0.038 @ stop_max=756.91
+                              vs costo=23.94 → SKIP (sin consultar a Claude)
+```
+
+**Consecuencia de diseño, que es lo que más importa:** el costo del prompt deja de escalar con la
+frecuencia de polling y pasa a escalar con las decisiones reales. Mientras no haya candidatos —el
+estado esperado hoy, § "Decisión 2026-08-27"— enriquecer el contexto de Claude cuesta cero. Cuando
+la cartera madure y entren varias posiciones por corrida, un prompt más gordo sí se paga; la
+diferencia es que ahí se paga por decisiones que efectivamente se toman.
+
 ### Lo que falta antes de sacar el DRY-RUN
 
 - ~~**Ventana 9-16h**~~ — **RESUELTO 2026-08-31** (§ "La ventana deja de estar en duro"). La franja
