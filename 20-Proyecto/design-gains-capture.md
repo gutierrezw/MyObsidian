@@ -95,10 +95,41 @@ con umbrales más bajos (`{"min_roi": 0.09, "min_ganancia": 90}` en Stock y Cryp
 `gains_capture` es el evento explosivo y puntual; `gains_oportunidades` es la rutina. Ambos
 se leen con el mismo `DataHub.gains_config(vehiculo, bloque)`.
 
-**Pendiente de calibrar:** con `min_ganancia = 200` medido sobre la CLASE, GainsCapture en
-la práctica solo puede proponer ventas "100%" — el techo histórico de una clase 25% en
-Stock es $181 y el de una 33% es $147 (`oportunidadesbuysell`, 187 filas SELL). El valor 200
-se calibró cuando el piso medía el símbolo entero.
+**Calibrado 2026-09-09 — `min_ganancia` de Stock baja de 200 a 150.** El hallazgo previo
+queda confirmado: con `min_ganancia = 200` medido sobre la CLASE, GainsCapture en la
+práctica solo podía proponer ventas "100%" — el techo histórico de una clase 25% en Stock
+es $181 y el de una 33% es $147. El valor 200 se calibró cuando el piso medía el símbolo
+entero y nunca se reajustó tras el cambio de objeto del 2026-08-22.
+
+Medido antes de tocarlo (`oportunidadesbuysell`, 148 filas SELL de Stock, 58 de ellas en
+2026 — la ventana vigente; el histórico completo solo como contraste):
+
+| Qué se midió | Resultado |
+|---|---|
+| Candidatos vivos de Stock (`categoriaActivo='N'`) | 14 |
+| Mueren en `min_roi=20%` (ningún lote maduro) | ~11 |
+| Mueren en `min_ganancia` (ningún escenario paga la fricción) | ~3 |
+| Ganancia por símbolo, 58 oportunidades de 2026 | p50 $91 · p75 $122 · p90 $177 · máx $275 |
+| De esas 58, cuántas superan el piso vendiendo el símbolo entero | 200 → 6 (10%) · 150 → 9 (16%) |
+| Cuántas lo superan con una clase 33% | 200 → 0 · 150 → 0 · haría falta bajar de ~80 |
+
+Lo que 150 abre y lo que no: **abre el escenario "100%"** para unos pocos símbolos más —los
+3 candidatos vivos que hoy sobreviven al ROI, y +3 oportunidades sobre 58 en la muestra de
+2026— y **no abre la clase 33%**, que sigue por debajo del piso. Para que 33% sea proponible
+el piso tendría que quedar bastante por debajo de 147, que es el máximo jamás observado y no
+un valor típico. Eso queda pendiente y se decide con una venta real, no con otra pasada sobre
+el histórico.
+
+**El gate que hoy manda no es este.** De los 14 candidatos, 11 mueren en `min_roi` antes de
+que `min_ganancia` llegue a evaluarse: bajar el piso de ganancia solo mueve la aguja para los
+3 que ya pasaron el ROI. Si tras esta calibración GainsCapture sigue sin proponer, el
+parámetro a revisar es `min_roi`, no `min_ganancia`. Los tres contadores de la línea CIERRE
+existen justamente para poder responder esto sin instrumentar nada más.
+
+Riesgo acotado: `modo_operacion = SUPERVISADO` — GainsCapture propone y espera autorización,
+no ejecuta solo. El cambio toma efecto en ≤60s (TTL de `load_vehiculo_params`) y se confirma
+en el log con `config cargada | min_roi=20% | min_gan=150.0 | modo=SUPERVISADO`. **Crypto
+queda en 300, sin tocar.**
 
 **Diseño original (obsoleto, no implementado así):** un array `niveles` de escalones ROI
 (`{"roi": 0.50, "vender_pct": 0.25}`, ...) donde cada nivel se ejecutaba una sola vez y
