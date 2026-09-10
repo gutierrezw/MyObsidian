@@ -152,6 +152,10 @@ if roi >= UMBRAL_REGLAS:
 **Invariante clave:** `stop_final >= stop_calculado` siempre.
 Claude solo puede subir el stop, nunca bajarlo ni cancelarlo.
 
+> **Anotado 2026-09-10:** en el código el invariante no vale cuando el techo `last − stop_max_atr_mult × ATR`
+> queda debajo de `stop_calculado`: el clamp va después y manda. Es a propósito — si el precio ya cruzó la
+> base, sin el techo el STOP quedaría encima del mercado. Ver § "El techo del stop deja de estar en 1 ATR".
+
 ---
 
 ## Persistencia de decisiones — `order_trader`
@@ -984,7 +988,8 @@ candidatos, y Preservation siguió gastando.
 | Preservation (antes) | `Class_AgentManager.py:1160` | **antes** de `preservation_calc_qty` y del gate |
 
 **Eran descartes demostrables sin llamar.** Claude solo puede **subir** `stop_final`, y `stop_max =
-last - atr` lo capa unas líneas más abajo. El máximo que la posición puede llegar a proteger es
+last - atr` lo capa unas líneas más abajo (desde el 2026-09-10 el `1` es `stop_max_atr_mult`, § siguiente).
+El máximo que la posición puede llegar a proteger es
 entonces `qty * stop_max - costo_lotes`, y `qty`/`costo_lotes` salen de una consulta a BD, no de la
 API. Si ese techo no llega a `gainInversion`, ninguna respuesta lo da vuelta.
 
@@ -1025,6 +1030,111 @@ frecuencia de polling y pasa a escalar con las decisiones reales. Mientras no ha
 estado esperado hoy, § "Decisión 2026-08-27"— enriquecer el contexto de Claude cuesta cero. Cuando
 la cartera madure y entren varias posiciones por corrida, un prompt más gordo sí se paga; la
 diferencia es que ahí se paga por decisiones que efectivamente se toman.
+
+### El techo del stop deja de estar en 1 ATR: `parameters.preservation.stop_max_atr_mult` (2026-09-10)
+
+BACKLOG #83. El techo `stop_max = last - atr` tenía el multiplicador en `1` en duro, y ese `1` era el que
+decidía el stop. Claude solo sube `stop_final` y el techo lo baja después, así que con Claude activo
+manda el techo: las 5 decisiones registradas quedaron en `last − 1×ATR`, entre 16% y 19% por encima de
+la base de reglas. `atr_mult` no llegó a determinar ninguna, y el prompt de Claude ni menciona el techo.
+
+```python
+stop_max = last - stop_max_atr_mult * atr      # antes: last - atr
+```
+
+**Default 1.0:** sin la clave, el vehículo se comporta exactamente como antes.
+
+**1 ATR es una mecha de ~4 días.** Cuánto vive un stop puesto a M ATR del precio antes de que el precio
+lo alcance, medido sobre 2.625 arranques en 5 años:
+
+| M | vida en alza | vida en baja |
+|---|---|---|
+| 1× | 4 días | 4 días |
+| 2× | 12 días | 9 días |
+| 3× | 24 días | 14 días |
+
+A 1× la vida **no depende del régimen**: dura lo mismo con el mercado subiendo que bajando, así que es el
+único valor que no aprovecha una recuperación. En Crypto es peor — con `revisiones_dia 12` el trinquete
+sube el stop seis veces más seguido que en Stock y a 1× eso le corta la vida a la mitad; desde 2× la
+diferencia se diluye.
+
+**Ampliar la ventana del ATR no era la palanca.** A 1×, W14, W20, W30 y W50 dan los mismos 3–4 días, y
+la ventana larga reacciona a la mitad ante un shock. El salto del ATR cuando vence un día grande es real
+(UL: −31,2% en un día), pero a través del trinquete casi no mueve el stop: pasar a Wilder lo corre
+0,03–0,09 USD, con el mismo día de disparo en 6 de 7 símbolos. Cosmético.
+
+**No se reutilizó `atr_mult`.** Miden cosas distintas: `atr_mult` es la distancia de la base desde SMA20;
+`stop_max_atr_mult`, la del techo desde `last`. Y Crypto tiene `atr_mult 2.5`: reutilizarlo habría fijado
+su techo sin que nadie lo decidiera.
+
+**Valor elegido: 2.0 para los dos vehículos.** Decisión del usuario, con dos premisas: nada en duro, y el
+valor no se calibra con la cartera del día — el mercado de hoy no es el de mañana. La comparación BP/BNB
+se usó para ver el costo, no para elegir: cada día de vida ganado se paga en ganancia asegurada, y de 2× a
+2,5× Crypto lo paga más caro (BNB 0,46 USD/día de 1× a 2×, 0,69 de 2× a 2,5×; BP 0,27 y 0,21).
+
+**Lo que se paga.** El gate `techo_corto` usa el mismo `stop_max`: con el techo más lejos del precio la
+misma posición protege menos plata y se descarta más seguido sin consultar a Claude. Es el mismo
+trade-off visto del otro lado.
+
+#### Cuándo el techo queda debajo de la base de reglas
+
+Con la cartera del 2026-09-09, a 2.0 ningún símbolo tenía el techo debajo de `stop_calculado` y a 2.5 sí
+cuatro (BTG, RELX, SOLUSDT, ADAUSDT). Eso es la foto del día, no una propiedad del multiplicador: depende
+de **dónde está el precio respecto de SMA20**. Con la base limitada por ATR:
+
+```
+techo < base   ⟺   last < SMA20 − (atr_mult − M) × ATR
+```
+
+(con la base limitada por `correccion_pct`: `last < SMA20 × (1 − correccion_pct) + M × ATR`)
+
+| | M = 1.0 | M = 2.0 | M = 2.5 |
+|---|---|---|---|
+| Stock (`atr_mult 2.0`) | `last < SMA20 − 1 ATR` | `last < SMA20` | `last < SMA20 + 0,5 ATR` |
+| Crypto (`atr_mult 2.5`) | `last < SMA20 − 1,5 ATR` | `last < SMA20 − 0,5 ATR` | `last < SMA20` |
+
+Pasa con **cualquier** multiplicador —también con el `1` que había— y más seguido cuanto más se acerca M
+a `atr_mult`. En Stock a 2.0 alcanza con que el precio esté debajo de su media de 20 días: el terreno de
+las caídas que este agente ataja.
+
+**No es un defecto a tapar.** Cuando el techo queda abajo hay dos casos:
+
+1. **El precio ya cruzó la base** (`last < stop_calculado`). La base queda encima del mercado y un STOP
+   de venta ahí dispara en el acto o lo rechaza el broker. El techo es lo único que mantiene la orden
+   debajo del precio: ni el resto de `_preservation_run_vehiculo()` ni `preservation_build_trama()`
+   comparan el stop contra `last`.
+2. **La base está debajo del precio pero a menos de M ATR.** El techo la baja para dejarle M ATR de aire.
+   Es elección de diseño: sin eso el stop queda pegado al precio.
+
+**Descartado:** la guarda `stop_max = max(stop_max, stop_calculado)`, que se había dejado como opción si
+algún día se quería 2,5×. En el caso 1 mandaría el STOP encima del mercado. Por la misma razón se anota
+el invariante de § "Lógica de activación".
+
+**No hay cómo validarlo con `run_booktrading_roi.py`.** La regla es no mover un umbral de venta sin
+correrlo sobre la ventana vigente, pero el script mide ventas realizadas y Preservation nunca vendió —
+DRY-RUN en los dos vehículos. Se deja constancia en vez de dar la regla por cumplida.
+
+**Quedan anotados, sin tocar:**
+- El ATR es media simple de 14 (`calcular_atr()`, `Modulos_Utilitarios.py`), no Wilder: **no coincide con
+  TradingView**. Lo usan también BotCrypto y `datos_tecnicos`.
+- En Crypto, `get_yfinance()` no le pasa `interval` a `get_klines_info()`, y ésta no lee `period`: sin
+  fechas pide siempre 1800 días en velas diarias. Preservation pide `6mo`/`1d` y el ATR sale igual, pero
+  el parámetro no significa lo que dice.
+
+**Escritura en BD — ejecutada 2026-09-10.** `sesion` tiene una fila por vehículo; como con `ventana`,
+el `UPDATE` toca solo el sub-objeto `preservation`:
+
+```sql
+UPDATE sesion
+SET parameters = JSON_SET(CONVERT(parameters USING utf8mb4), '$.preservation.stop_max_atr_mult', 2.0)
+WHERE vehiculo IN ('Stock', 'Crypto');
+```
+
+Verificado después de correrlo: las dos filas quedaron con `stop_max_atr_mult` 2.0 (DOUBLE), el JSON
+válido y las otras 8 claves de `preservation` sin cambios.
+
+`preservation_config` se cachea por vida del proceso: toma efecto al reiniciar la app, borrando antes
+`AppOO\__pycache__\Class_AgentManager.*.pyc`.
 
 ### Lo que falta antes de sacar el DRY-RUN
 
