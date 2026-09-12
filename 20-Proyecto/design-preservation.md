@@ -1067,6 +1067,9 @@ la ventana larga reacciona a la mitad ante un shock. El salto del ATR cuando ven
 `stop_max_atr_mult`, la del techo desde `last`. Y Crypto tiene `atr_mult 2.5`: reutilizarlo habría fijado
 su techo sin que nadie lo decidiera.
 
+> **Anotado 2026-09-12:** Crypto pasó a `atr_mult 2.0` por una decisión aparte (§ "El piso de Crypto baja
+> de 2,5 a 2 ATR"). Las claves siguen separadas: que hoy coincidan en 2.0 no las une.
+
 **Valor elegido: 2.0 para los dos vehículos.** Decisión del usuario, con dos premisas: nada en duro, y el
 valor no se calibra con la cartera del día — el mercado de hoy no es el de mañana. La comparación BP/BNB
 se usó para ver el costo, no para elegir: cada día de vida ganado se paga en ganancia asegurada, y de 2× a
@@ -1092,6 +1095,9 @@ techo < base   ⟺   last < SMA20 − (atr_mult − M) × ATR
 |---|---|---|---|
 | Stock (`atr_mult 2.0`) | `last < SMA20 − 1 ATR` | `last < SMA20` | `last < SMA20 + 0,5 ATR` |
 | Crypto (`atr_mult 2.5`) | `last < SMA20 − 1,5 ATR` | `last < SMA20 − 0,5 ATR` | `last < SMA20` |
+
+Desde el 2026-09-12 Crypto tiene `atr_mult 2.0` y le vale la fila de Stock: con M = 2.0 el techo queda
+debajo de la base siempre que `last < SMA20`.
 
 Pasa con **cualquier** multiplicador —también con el `1` que había— y más seguido cuanto más se acerca M
 a `atr_mult`. En Stock a 2.0 alcanza con que el precio esté debajo de su media de 20 días: el terreno de
@@ -1136,6 +1142,38 @@ válido y las otras 8 claves de `preservation` sin cambios.
 `preservation_config` se cachea por vida del proceso: toma efecto al reiniciar la app, borrando antes
 `AppOO\__pycache__\Class_AgentManager.*.pyc`.
 
+### El piso de Crypto baja de 2,5 a 2 ATR: `atr_mult` (2026-09-12)
+
+Sale del § anterior. Al repasar la fórmula completa, los dos multiplicadores quedaron uno al lado del otro
+y se vio que la decisión del 2026-09-10 —2 ATR para los dos vehículos— era solo sobre el techo: Crypto
+seguía con el piso en 2,5. El usuario decidió alinearlos.
+
+`atr_mult` gobierna el piso `SMA20 − max(correccion_pct × SMA20, atr_mult × ATR)`, que define el stop solo
+cuando Claude no contesta o sugiere por debajo y no hay `stop_anterior` más alto. En el camino normal
+mandan Claude o el techo, así que **el cambio mueve el fallback, no el stop de todos los días.**
+
+Qué cambia en Crypto:
+
+- El término ATR pasa a mandar recién con `ATR > 6%` de SMA20 — antes, 4,8% (`correccion_pct / atr_mult`).
+  Debajo de ese umbral manda el 12% fijo y el piso queda idéntico.
+- Por encima, el piso sube medio ATR. Con SMA20 100 y ATR 7: antes `100 − 17,5 = 82,5`, ahora
+  `100 − 14 = 86`.
+- La condición "techo debajo de la base" pasa a ser `last < SMA20`, la misma de Stock.
+
+**Escritura en BD — ejecutada 2026-09-12.** Toca solo la fila de Crypto:
+
+```sql
+UPDATE sesion
+SET parameters = JSON_SET(CONVERT(parameters USING utf8mb4), '$.preservation.atr_mult', 2.0)
+WHERE vehiculo = 'Crypto';
+```
+
+Verificado después de correrlo: Crypto quedó con `atr_mult` 2.0 y las otras 8 claves de `preservation`
+sin cambios; Stock sin tocar. Rige al reiniciar la app, por el mismo caché de `preservation_config`.
+
+Vale la misma salvedad del § anterior: `run_booktrading_roi.py` no puede validarlo porque mide ventas
+realizadas y Preservation nunca vendió.
+
 ### Lo que falta antes de sacar el DRY-RUN
 
 - ~~**Ventana 9-16h**~~ — **RESUELTO 2026-08-31** (§ "La ventana deja de estar en duro"). La franja
@@ -1169,7 +1207,8 @@ válido y las otras 8 claves de `preservation` sin cambios.
 Con `roi_minimo 0.18` y `gainInversion 20`, de las 12 posiciones Crypto vivas entra **una sola**:
 BNBUSDT (+30,30 sobre 167,25 = **18,1%**). BTCUSDT (14,5%) y SOLUSDT (12,3%) quedan afuera por poco.
 El bloque `preservation` de `sesion.parameters` para Crypto ya existía y está calibrado aparte del de
-Stock: `atr_mult 2.5`, `correccion_pct 0.12`, `proteccion_base 0.4`, `revisiones_dia 12` (ver arriba).
+Stock: `atr_mult 2.5` (**2.0 desde el 2026-09-12**), `correccion_pct 0.12`, `proteccion_base 0.4`,
+`revisiones_dia 12` (ver arriba).
 
 **`categoriaActivo` no era bloqueador.** `_preservation_run_vehiculo()` nunca la consulta — el filtro
 `IN ('I','S')` vive solo en este documento, nunca en el código. Ya estaba anotado en
