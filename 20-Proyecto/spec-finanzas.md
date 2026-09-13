@@ -3,6 +3,63 @@
 > **Proyecto de segundo plano.** Se trabaja en sesiones cortas sin presión.
 > Una fase a la vez. No se integra a AppOO hasta que cada pieza esté probada sola.
 
+## 0. Norte del módulo — objetivos (2026-09-13)
+
+> Definidos por el usuario el 2026-09-13, al revisar el tab Finanzas ya en funcionamiento.
+> **Mandan sobre el roadmap de §9**, que queda como historia: el tab (Fase 4) ya existe y la
+> carpeta vigilada reemplazó a Gmail como entrada de extractos.
+
+### Objetivos
+
+| # | Objetivo | Qué hace falta | Qué ya existe y se reutiliza |
+|---|----------|----------------|------------------------------|
+| 1 | Agregar otras cuentas | Un adapter por formato de extracto nuevo + alta en `fin_accounts` | 7 adapters (BBVA ×3, Santander, Citi, BDV, Binance C2C) y detección por palabra clave. Tres cuentas dadas de alta nunca recibieron filas: BBVA CA USD, BBVA CC ARS, Santander Débito |
+| 2 | Categorías bien ajustadas y replicadas en todos los extractos | Árbol único de categorías, tipo correcto en cada una, reglas que comparan el mismo texto que se ve en pantalla, reglas específicas (no `TRANSFERENCIA` a secas) | `fin_categories.parent_id` (4 padres hoy), `fin_import_rules` con prioridad y aplicación retroactiva |
+| 3 | Ejecución de mínimo esfuerzo, aunque sea importante | El usuario solo deja el PDF (más adelante ni eso: Gmail). Lo que las reglas no clasifican lo sugiere la IA y queda en una cola de un clic; lo que falta avisa solo | `Agente_ExtractosWatcher`, patrón Haiku de `Agente_ClasificadorCrypto`, `DataHub.add_alert` → Telegram. `needs_review` y `classification_confidence` ya existen en `fin_transactions`, sin uso |
+| 4 | Encontrar el número de libertad financiera y trabajar en función de él: reducir gastos, potenciar inversiones | Gasto anual recurrente ÷ tasa de retiro (4% → ×25, configurable). Progreso = patrimonio invertido ÷ número. Años estimados según la tasa de ahorro. Variante a evaluar: ingreso pasivo ≥ gasto recurrente | `get_totales_inversiones()` ya da el patrimonio invertido en USD de todos los vehículos |
+| 5 | Disponible en banco a fin de mes | Guardar el saldo final de cada extracto por cuenta | Los parsers ya leen `SALDO ANTERIOR` / `SALDO ACTUAL` y los descartan. `fin_accounts.balance` existe y está en 0 en todas las cuentas |
+| 6 | Diferenciar gastos recurrentes de fortuitos | Marca por categoría (fijo / variable / extraordinario) + detección de mismo comercio con frecuencia ~mensual | `is_recurring` y `recurring_group_id` ya existen: 0 de 813 filas marcadas |
+
+### Puntos agregados en la revisión
+
+- **Conciliación por saldo.** Saldo anterior + movimientos = saldo actual; si no cierra, faltan filas. Es el
+  control de calidad que hoy no existe: los huecos de BBVA CA ARS (03-27→04-29 y 06-26→07-29) pasaron sin
+  aviso. Sale casi gratis con el objetivo 5.
+- **Monitor de cobertura.** Último dato por cuenta visible en el panel, y alerta cuando una cuenta pasa ~35
+  días sin extracto o un PDF termina con 0 filas guardadas (caso `Santander mar-2026.pdf`, 2026-07-22).
+- **Las transferencias propias se netean.** Pagar la tarjeta sale de la cuenta y entra en la tarjeta; comprar
+  USDT sale del banco y entra en Binance. Si falta la contraparte, parece gasto. Depende del objetivo 1.
+- **Deudas en el patrimonio.** El préstamo de 9M ARS (2026-05) tiene saldo pendiente. Patrimonio neto =
+  bancos + inversiones − deudas; sin restar la deuda, el progreso hacia la libertad financiera se sobreestima.
+- **Tipo de cambio diario.** `fin_exchange_rates` existe con 0 filas; la tasa sale hoy de las operaciones
+  propias en `booktrading` (~6 puntos en agosto 2026).
+- **Account-first.** Las tablas `fin_*` no tienen dueño (`account`). Hoy hay un solo usuario; si el módulo se
+  ofrece a terceros, conviene agregarlo antes de que crezcan los datos.
+
+### Orden de trabajo
+
+| Etapa | Contenido | Objetivos | Estado |
+|-------|-----------|-----------|--------|
+| E1 | Números correctos: los KPIs respetan entradas y salidas (regla abajo) + corrección de datos de la categoría Financiación | base de todo | Código hecho (`24a8ddc`, 2026-09-13). Pendiente: corrección de datos de Financiación |
+| E2 | Categorías y reglas: árbol, tipos, las 38 reglas con sufijo de origen (0 aciertos), `TRANSFERENCIA` demasiado amplia, marca fijo / variable / extraordinario | 2, 6 | Pendiente |
+| E3 | Saldos, conciliación, cobertura y alta de cuentas nuevas | 5, 1 | Pendiente — falta la lista de cuentas |
+| E4 | Mínimo esfuerzo: IA para lo que no matchea, cola de revisión, alertas y resumen mensual por Telegram | 3 | Pendiente |
+| E5 | Libertad financiera: número, progreso, años estimados, gasto recurrente base | 4 | Pendiente — depende de E1–E3 |
+| E6 | Presupuestos derivados del gasto recurrente, tasa diaria, captura por Gmail | 3, 4 | Pendiente |
+
+### Regla de cálculo de los KPIs (E1)
+
+- **Grupo** (ingreso / gasto / inversión / transferencia): lo decide la categoría. Sin categoría, lo decide `t.type`.
+- **Signo:** suma si la fila va en el sentido del grupo (en ingresos entra; en los demás sale) y resta si va en
+  contra. Un reintegro dentro de una categoría de gasto baja los gastos; un rescate de FCI baja lo invertido.
+- **Invertido** es neto (suscripto − rescatado) y puede ser negativo. **Balance** = ingresos − gastos, con el % de ahorro.
+- **Antes del 2026-09-13** se sumaba el monto sin mirar `t.type` y lo que no tenía categoría contaba como gasto:
+  agosto 2026 mostraba Gastos 745 / Invertido 726 cuando eran 689 / −157.
+- Vive en `FinanceScreen._SQL_GRUPO` / `_SQL_NETO` (`Modulos_Mysql.py`), compartida por `get_kpis`,
+  `_get_categories_by_type` y `get_monthly_evolution`.
+
+------------------------------------------------------------------------
+
 ## 1. Objetivo
 
 Dos proyectos que comparten la misma integración Gmail y trabajan juntos:
