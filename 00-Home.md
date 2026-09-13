@@ -73,7 +73,7 @@
 ### Finanzas y usuario
 | Doc | Descripción |
 |-----|-------------|
-| [[20-Proyecto/spec-finanzas\|Finanzas Personales]] | Gmail + finanzas |
+| [[20-Proyecto/spec-finanzas\|Finanzas Personales]] | Extractos PDF por carpeta vigilada + Binance C2C/Pay por API. §0: objetivos del usuario y etapas E1–E6 |
 | [[20-Proyecto/ref-instalacion\|Instalación AppOO]] | Guía de instalación |
 | [[20-Proyecto/ref-instalacion-hijo\|Instalación hijo]] | Versión hijo |
 
@@ -84,7 +84,8 @@
 - **Cuenta stock:** U4214563
 - **Cuenta crypto:** B0000001 / B0000002
 - **DB:** MySQL 8.x — schema `bdinv`
-- **Branch docs:** `Appoo` (fuente de verdad para .md)
+- **Rama de trabajo:** `main` en MyPython y en el vault. `Appoo` es la historia anterior (último commit 2026-04-04) — `main` no deriva de ella
+- **Docs `.md` y BACKLOG:** se comitean en el vault. `AppOO/Doc` es junction → `20-Proyecto/`
 
 ---
 

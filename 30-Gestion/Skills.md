@@ -58,5 +58,5 @@ Se invoca con `/<nombre-carpeta>`.
 |-------|----------|
 | `/nueva-sesion` | Ejecuta el checklist de inicio: lee última sesión + Home |
 | `/cierre-sesion` | Genera la nota de sesión automáticamente |
-| `/backlog` | Muestra el BACKLOG desde rama `docs` formateado |
+| `/backlog` | Muestra `30-Gestion/BACKLOG.md` del vault formateado |
 | `/decision` | Crea una nota de decisión técnica con el template |

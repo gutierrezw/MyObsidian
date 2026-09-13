@@ -13,12 +13,12 @@
 
 | # | Objetivo | Qué hace falta | Qué ya existe y se reutiliza |
 |---|----------|----------------|------------------------------|
-| 1 | Agregar otras cuentas | Un adapter por formato de extracto nuevo + alta en `fin_accounts` | 7 adapters (BBVA ×3, Santander, Citi, BDV, Binance C2C) y detección por palabra clave. Tres cuentas dadas de alta nunca recibieron filas: BBVA CA USD, BBVA CC ARS, Santander Débito |
-| 2 | Categorías bien ajustadas y replicadas en todos los extractos | Árbol único de categorías, tipo correcto en cada una, reglas que comparan el mismo texto que se ve en pantalla, reglas específicas (no `TRANSFERENCIA` a secas) | `fin_categories.parent_id` (4 padres hoy), `fin_import_rules` con prioridad y aplicación retroactiva |
-| 3 | Ejecución de mínimo esfuerzo, aunque sea importante | El usuario solo deja el PDF (más adelante ni eso: Gmail). Lo que las reglas no clasifican lo sugiere la IA y queda en una cola de un clic; lo que falta avisa solo | `Agente_ExtractosWatcher`, patrón Haiku de `Agente_ClasificadorCrypto`, `DataHub.add_alert` → Telegram. `needs_review` y `classification_confidence` ya existen en `fin_transactions`, sin uso |
+| 1 | Agregar otras cuentas | Un adapter por formato de extracto nuevo + alta en `fin_accounts` | 8 adapters (BBVA ×3, Santander, Citi, BDV, Banesco, Binance C2C) y detección por palabra clave. Banesco (2026-09-13) hereda de BDV y solo cambia la lectura: mide las columnas desde la cabecera del detalle, porque la hoja 1 trae titular y resumen a la izquierda y las siguientes no. Tres cuentas dadas de alta nunca recibieron filas: BBVA CA USD, BBVA CC ARS, Santander Débito |
+| 2 | Categorías bien ajustadas y replicadas en todos los extractos | Reglas que comparan el mismo texto que se ve en pantalla, reglas específicas (no `TRANSFERENCIA` a secas) | Mapa plano de 31 categorías con tipo y clase (2026-09-13, ver "Mapa de categorías"). `fin_import_rules` con prioridad y aplicación retroactiva |
+| 3 | Ejecución de mínimo esfuerzo, aunque sea importante | El usuario solo deja el PDF (más adelante ni eso: Gmail). Lo que las reglas no clasifican lo sugiere la IA y queda en una cola de un clic; lo que falta avisa solo | `Agente_ExtractosWatcher` (thread propio; un PDF reconocido del que no sale ninguna fila va a `desconocidos/`), `Agente_BinanceApiSync` (C2C y Pay de Binance por API, diario, sin descargar nada — ver "Extractos y cargas automáticas"), patrón Haiku de `Agente_ClasificadorCrypto`, `DataHub.add_alert` → Telegram. `needs_review` y `classification_confidence` ya existen en `fin_transactions`, sin uso |
 | 4 | Encontrar el número de libertad financiera y trabajar en función de él: reducir gastos, potenciar inversiones | Gasto anual recurrente ÷ tasa de retiro (4% → ×25, configurable). Progreso = patrimonio invertido ÷ número. Años estimados según la tasa de ahorro. Variante a evaluar: ingreso pasivo ≥ gasto recurrente | `get_totales_inversiones()` ya da el patrimonio invertido en USD de todos los vehículos |
 | 5 | Disponible en banco a fin de mes | Guardar el saldo final de cada extracto por cuenta | Los parsers ya leen `SALDO ANTERIOR` / `SALDO ACTUAL` y los descartan. `fin_accounts.balance` existe y está en 0 en todas las cuentas |
-| 6 | Diferenciar gastos recurrentes de fortuitos | Marca por categoría (fijo / variable / extraordinario) + detección de mismo comercio con frecuencia ~mensual | `is_recurring` y `recurring_group_id` ya existen: 0 de 813 filas marcadas |
+| 6 | Diferenciar gastos recurrentes de fortuitos | Detección de mismo comercio con frecuencia ~mensual | `fin_categories.expense_class` (fijo / variable / extraordinario, 2026-09-13). `is_recurring` y `recurring_group_id` ya existen: 0 de 813 filas marcadas |
 
 ### Puntos agregados en la revisión
 
@@ -40,8 +40,8 @@
 
 | Etapa | Contenido | Objetivos | Estado |
 |-------|-----------|-----------|--------|
-| E1 | Números correctos: los KPIs respetan entradas y salidas (regla abajo) + corrección de datos de la categoría Financiación | base de todo | Código hecho (`24a8ddc`, 2026-09-13). Pendiente: corrección de datos de Financiación |
-| E2 | Categorías y reglas: árbol, tipos, las 38 reglas con sufijo de origen (0 aciertos), `TRANSFERENCIA` demasiado amplia, marca fijo / variable / extraordinario | 2, 6 | Pendiente |
+| E1 | Números correctos: los KPIs respetan entradas y salidas (regla abajo) + corrección de datos de la categoría Financiación | base de todo | Hecho. Código `24a8ddc`; los datos de Financiación se corrigieron con el mapa de categorías (2026-09-13) |
+| E2 | Categorías y reglas: árbol, tipos, las 38 reglas con sufijo de origen (0 aciertos), `TRANSFERENCIA` demasiado amplia, marca fijo / variable / extraordinario | 2, 6 | En curso. Mapa y marca hechos en BD (2026-09-13). Pendiente: reglas e importadores (lista en "Mapa de categorías") |
 | E3 | Saldos, conciliación, cobertura y alta de cuentas nuevas | 5, 1 | Pendiente — falta la lista de cuentas |
 | E4 | Mínimo esfuerzo: IA para lo que no matchea, cola de revisión, alertas y resumen mensual por Telegram | 3 | Pendiente |
 | E5 | Libertad financiera: número, progreso, años estimados, gasto recurrente base | 4 | Pendiente — depende de E1–E3 |
@@ -57,6 +57,129 @@
   agosto 2026 mostraba Gastos 745 / Invertido 726 cuando eran 689 / −157.
 - Vive en `FinanceScreen._SQL_GRUPO` / `_SQL_NETO` (`Modulos_Mysql.py`), compartida por `get_kpis`,
   `_get_categories_by_type` y `get_monthly_evolution`.
+
+### Mapa de categorías (E2, 2026-09-13)
+
+> Migración de datos en BD, sin cambios de código. Respaldo previo en `fin_categories_bak_20260913`,
+> `fin_txn_cat_bak_20260913` y `fin_rules_cat_bak_20260913`.
+
+**Estructura de `fin_categories`:**
+- `category_type` decide el grupo de los KPIs: `expense` / `income` / `transfer` / `investment`. Las
+  transferencias no suman ni en ingresos ni en gastos.
+- `expense_class` (nueva, solo gastos): `fixed` + `variable` = costo de vida base del número de libertad
+  financiera; `extraordinary` se promedia aparte. NULL en los demás tipos. El comentario de la columna en
+  MySQL repite la regla.
+- Se borró la columna `type`: nada la leía y `uq_cat_name (name, type)` permitía repetir un nombre. Hoy
+  `uq_cat_name (name)`.
+- `parent_id` quedó en NULL en todas: el mapa es plano. La columna sigue existiendo.
+
+**Mapa vigente (31 categorías):**
+
+| Tipo | Clase | Categorías |
+|------|-------|-----------|
+| expense | fixed | Alquiler, Servicios, Suscripciones, Expensas, Familia, Cuotas de préstamo, Intereses y financiación, Banco e impuestos |
+| expense | variable | Supermercado, Restaurantes, Transporte, Salud, Médico, Hogar, Ropa y compras personales, Otros gastos |
+| expense | extraordinary | Tecnología, Viajes, Mantenimiento, Cancelación de préstamo |
+| income | — | Sueldo, Reintegros y bonificaciones, Intereses ganados, Otros ingresos |
+| transfer | — | Pago tarjeta crédito, Entre cuentas propias, Cambio de moneda, Préstamo recibido |
+| investment | — | Inversiones, Aportes a IB, Retención USDT |
+
+Médico, Mantenimiento, Viajes y Otros ingresos no tienen filas: quedan por decisión del usuario.
+
+**Categorías fundidas:**
+
+| Antes | Ahora | Nota |
+|-------|-------|------|
+| Comisiones bancarias + Impuestos bancarios | Banco e impuestos | |
+| Gastos Caracas + Gastos Tucacas | Expensas | Expensas y mantenimiento de las propiedades en Venezuela. Se pierde la separación entre las dos |
+| Mesada Daniel A + Remesa Pay | Familia | Remesa Pay = Binance Pay a Paredes Leonel |
+| Ropa y calzado + Shopping + Deportes | Ropa y compras personales | |
+| Taxi/Uber/Cabify | Transporte | |
+| Transferencia entre cuentas + Interno Citi | Entre cuentas propias | |
+| Compra USDT + Ingreso USDT + Venta USDT USD + Remesa VES | Cambio de moneda | Incluye los Zelle recibidos en Citi: son USDT→USD para invertir o pesos→USD que manda un tercero (normalmente Nelson Ruiz), no ingreso |
+
+**Renombres:** Freelance/Honorarios → Sueldo · Bonificaciones → Reintegros y bonificaciones · Cuotas crédito →
+Cuotas de préstamo · Intereses cobrados → Intereses y financiación · Transferencia IB → Aportes a IB.
+
+**Filas que cambiaron de categoría una por una:**
+- **Financiación** (dato pendiente de E1) era `income` y mezclaba el préstamo con sus pagos: el desembolso
+  inflaba los ingresos de mayo. Hoy el desembolso es Préstamo recibido (`transfer`), las cuotas van a Cuotas
+  de préstamo y la cancelación a la categoría nueva Cancelación de préstamo (`extraordinary`).
+- **Planes de tarjeta** (VISA PLAN V, CUOTIFICACION, FINANC DE SALDO, EXPR.PLAN AMEX) y sus abonos `CR.$ PLAN V`
+  / `CR.$ CUOTIFICACION` van juntos a Intereses y financiación: en la misma categoría el capital se netea y no
+  se cuenta dos veces.
+- 4 filas de Bonificaciones pasaron a Intereses ganados.
+
+**Cifras:** 11 categorías renombradas, 1 creada y 11 borradas; 79 filas y 32 reglas reasignadas; filas sin
+categoría 49 → 32. KPIs 2026 verificados contra la BD después de migrar:
+
+| Mes | Ingresos antes → después | Gastos antes → después |
+|-----|--------------------------|------------------------|
+| 2026-02 | 3.279,69 (sin cambio) | 2.258,55 → 1.852,45 |
+| 2026-05 | 6.822,64 → 2.665,71 | 451,78 → 2.407,36 |
+| 2026-06 | 3.916,50 → 4.423,11 | 293,64 → 800,25 |
+| **Total 2026** | **25.785,99 → 22.135,66** | **8.657,62 → 10.713,70** |
+
+**Pendiente de E2 (código):**
+- Las reglas comparan contra un texto distinto del que se ve (sufijo de origen ` — 100`): 38 reglas sin aciertos.
+- Debe ganar la regla más específica: hoy #269 y #320 quedan tapadas por otras.
+- La aplicación retroactiva solo debe completar filas sin categoría, sin pisar las clasificadas.
+- Reglas genéricas para los planes de tarjeta.
+- El popup de categorías no muestra ni edita `expense_class`.
+- Las cuotas de tarjeta se importan con la fecha de la compra original: CUOTIFICACION 1-06…5-06 viene de cinco
+  extractos distintos y las cinco filas quedan el 2026-02-07.
+- Re-aplicar las reglas una vez corregidas (escritura en BD, con autorización).
+
+### Extractos y cargas automáticas (2026-09-13)
+
+**Carpeta vigilada.** `Agente_ExtractosWatcher` pasó de la lista inline a un thread propio de
+`register_threads()`, con el patrón de los demás agentes lentos. Cada adapter extrae las filas
+**antes** de registrar el import; un PDF reconocido que no da ninguna fila ya no deja un import vacío en
+`fin_statement_imports` y va a `desconocidos/` para revisarlo, en lugar de borrarse como si se hubiera cargado.
+Los 71 imports vacíos que dejó el comportamiento anterior siguen en la tabla (limpieza pendiente, con autorización).
+
+**Banesco (cuenta 35, `BANESCO-0611`).** Reglas 475-483:
+
+| Texto al inicio | Categoría |
+|-----------------|-----------|
+| `COM,TRF.CR.INM`, `COM,SERV.M`, `ComisionServicioSMS`, `EMISIONEDOCUENTA`, `EMISIONDEESTADODECUENTA` | Banco e impuestos |
+| `NETUNOREC,ENLINEA` (internet), `CORPOELECREC,ENLINEA` (electricidad) | Servicios |
+| `TRANS,CTAS`, `TRFCRINM` | Expensas |
+
+Los abonos `TRANS,CTAS` de terceros son ventas de USDT (decisión del usuario) y quedan en Cambio de moneda. Las
+tres transferencias a Luz (V-12.357.122, 2026-06-30) son un caso puntual: se pasaron a mano a Familia, sin regla
+propia. Una transferencia futura a esa cédula caería en Expensas por la #483.
+
+**Santander.** También se detecta por el CBU de la cuenta (`0720175888000037071990`), para los PDF donde la
+palabra "Santander" no aparece entre las primeras 200 palabras que mira `detect_adapter()`.
+
+**Binance — tres fuentes para la cuenta `BINANCE-USDT`:**
+
+| Fuente | Sección | Clase | Comprobante |
+|--------|---------|-------|-------------|
+| PDF "Historial de órdenes C2C" (carpeta vigilada) | `binance_c2c` | `BinanceC2c` | número de orden |
+| API C2C `/sapi/v1/c2c/orderMatch/listUserOrderHistory` | `binance_c2c` | `BinanceC2cApi` | `orderNumber` = número de orden del PDF |
+| API Pay `/sapi/v1/pay/transactions` (solo egresos) | `binance_pay` | `BinancePay` | `transactionId` |
+
+- **PDF C2C.** Se detecta por "Historial de órdenes C2C". Binance cambió el año de la hora de `26-03-28` a
+  `2026-03-28`; la regex acepta los dos. La cuenta sale de la regla de detección, como en los demás adapters.
+- **API C2C.** Solo órdenes `COMPLETED` (la API también devuelve las canceladas), BUY y SELL, de a 100 por página.
+  Hereda `_build_transactions` del PDF: neto = `amount` − `takerCommission` en compras y + en ventas. Verificado el
+  2026-09-13 contra lo cargado por PDF: 58 órdenes desde 2026-03-01, 0 diferencias en fecha, tipo, neto y descripción.
+  Las dos fuentes comparten comprobante, así que se deduplican entre sí.
+- **API Pay.** Usaba `startTimestamp`/`endTimestamp`: Binance ignora esos nombres y devuelve los últimos 90 días.
+  Hoy manda `startTime`/`endTime` en tramos de hasta 90 días (un rango mayor da `403004`). Ya no descarta un rango
+  "ya importado": lo deduplica el comprobante.
+- **Carga compartida** `_load_api_rows()`. Una API se vuelve a consultar sobre la misma ventana todos los días,
+  así que primero se descartan los comprobantes ya cargados — antes de clasificar, porque `apply_rules` suma
+  `hit_count`. El import se registra **solo si hay filas nuevas**, con el SHA-256 de esos comprobantes como
+  `file_hash`; si una corrida registró el import y cortó antes de insertar, el mismo hash lo reutiliza. Una fila
+  que el índice único descarta en silencio (`INSERT IGNORE`) cuenta como error y se loguea.
+- **Automatización.** `sync_binance_api()` corre desde `Agente_BinanceApiSync` cada 24 h. Cada fuente arranca 3 días
+  antes de su último movimiento cargado (cubre cortes y el desfase UTC / hora local) o 90 días atrás si no tiene
+  ninguno. La fila sintética `BINANCE-INV-YYYY-MM` no tiene import y no adelanta la ventana. Una fuente que falla
+  no frena a la otra. Primera verificación: 0 filas nuevas en las dos ventanas — todo estaba cargado por PDF.
+  **Desde acá el PDF de C2C ya no hace falta.**
 
 ------------------------------------------------------------------------
 
@@ -212,7 +335,8 @@ con el rate correcto de la fecha, no el rate de hoy.
 | pair          | VARCHAR  | Par Binance usado (ej: ARSUSDT, USDTARS invertido)    |
 
 **Notas:**
-- VES: Binance P2P es la referencia (no hay par spot directo) → carga manual o scraping
+- VES: Binance P2P es la referencia (no hay par spot directo) → carga manual o scraping. Las órdenes C2C propias
+  ya llegan por API con su precio (§8, corrección 2026-09-13)
 - ARS: par USDTARS en Binance P2P → invertir para obtener ARS/USDT
 - USD: rate = 1.0 siempre (USD ≈ USDT para este propósito)
 - Si no hay rate para una fecha, usar el rate más cercano disponible
@@ -278,6 +402,9 @@ Controla qué archivos ya se procesaron para evitar doble importación.
 ---
 
 ### 5.5 categories — categorías de gasto/ingreso
+
+> **Diseño original.** La tabla real `fin_categories` difiere desde 2026-09-13: sin `type` ni jerarquía, con
+> `category_type` y `expense_class`. El mapa vigente está en §0 → "Mapa de categorías".
 
 | Columna   | Tipo    | Descripción                                          |
 |-----------|---------|------------------------------------------------------|
@@ -525,7 +652,11 @@ ahorro_mensual_necesario = (precio - ahorro_actual) / meses_restantes
 ### Binance como fuente de tipos de cambio
 - Agente en `Class_DashBot.py` con `@wait_rate(86400)` → descarga precio spot
   de los pares relevantes (ARSUSDT, VESUSDT vía P2P si disponible) y popula `exchange_rates`
-- Para VES: P2P de Binance no tiene API pública → carga manual o scraping del portal
+- Para VES: ~~P2P de Binance no tiene API pública → carga manual o scraping del portal~~
+  **Corregido 2026-09-13:** las órdenes C2C propias sí salen por API firmada
+  (`/sapi/v1/c2c/orderMatch/listUserOrderHistory`, con `unitPrice` por orden) y desde esa fecha se cargan solas
+  (§0 "Extractos y cargas automáticas"). Lo que sigue sin API documentada es el libro público de anuncios P2P:
+  la tasa sale de las operaciones propias, no del mercado.
 
 ### Binance DeFi — integración futura (Fase 4)
 - Operaciones Spot ya registradas en AppOO → mapear a `transactions` con
