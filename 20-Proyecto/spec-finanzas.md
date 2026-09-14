@@ -130,6 +130,43 @@ categoría 49 → 32. KPIs 2026 verificados contra la BD después de migrar:
   extractos distintos y las cinco filas quedan el 2026-02-07.
 - Re-aplicar las reglas una vez corregidas (escritura en BD, con autorización).
 
+**Revisión del 2026-09-13 — mesadas de Daniel y Yolemi.**
+
+*Datos corregidos* (SQL ejecutado por el usuario): reglas #494 `YOLEMI ALBARRACIN` y #495 `0960311796` (cuenta de
+Daniel) → Familia, prioridad 30. Se desactivaron #315 y #380, que nunca acertaron. 13 filas pasaron de Cambio de
+moneda a Familia (8 de Yolemi, 5 de Daniel) y la fila 2170 a mano (`manual`, ver "Santander — el detalle es la
+primera línea sin monto"). Daniel tiene su mesada de 200.000 ARS de abril a julio; agosto entra con el próximo
+extracto de Santander.
+
+*Pedidos del usuario:*
+1. Un ajuste de categoría tiene que replicarse en todo movimiento que cumpla la misma condición.
+2. Una opción global para ver qué cae en cada categoría y ajustarlo desde ahí.
+3. En la barra de categorías no se distingue que la fila se puede cliquear.
+
+*Por qué hoy un ajuste no se replica* — tres fallas entre `_CategoryEditPopup` y `save_rule`:
+- **(a) Patrón precargado imposible.** Es la descripción completa con el sufijo ` — detalle`, pero `apply_rules`
+  compara `concepto + " " + detalle`, sin la raya. #315 y #380 eran de ese tipo: 0 aciertos.
+- **(b) Hacia atrás no mira el detalle.** La aplicación retroactiva (`save_rule`) y la vista previa
+  (`save_rule_count_retro`) comparan solo `raw_description`. Una regla por cuenta de destino clasifica lo nuevo y
+  no encuentra nada de lo ya cargado. Solo el adapter de Santander pasa el detalle a `apply_rules`; BBVA no trae
+  destinatario en el extracto.
+- **(c) Empata con la #320.** Las reglas del popup se guardan con prioridad 50, la misma que `TRANSFERENCIA` →
+  Cambio de moneda; con `ORDER BY priority, id` gana la #320 por id menor. Complementa "Debe ganar la regla más
+  específica".
+
+*Mejoras recomendadas, en el orden acordado:*
+1. ~~Datos de Daniel y Yolemi~~ — hecho (arriba).
+2. **Popup de categoría** (commit chico): sugerir una clave corta (cuenta de destino o nombre, no la descripción
+   entera), aplicar hacia atrás y previsualizar mirando también el detalle, y guardar las reglas del usuario con
+   prioridad 30.
+3. **Pantalla "Revisión de categorías"** (pedido 2): vista global por categoría y, dentro, agrupada por destinatario
+   o cuenta, con cantidad, total y la regla que clasificó el grupo. El error casi nunca es un movimiento suelto sino
+   un destinatario entero: reasignar el grupo crea la regla con la clave corta y la aplica hacia atrás. En
+   `_CategoryBar` (pedido 3): cursor de mano, "›" al final de cada fila y color de fondo al pasar el mouse.
+4. **Revisar la #320 `TRANSFERENCIA`.** 200 aciertos; hoy deja 156 transferencias en Cambio de moneda: cuenta propia,
+   Nelson, Brian, el alquiler a Sergio di Sabato. La vista del paso 3 es la herramienta para desarmarla por
+   destinatario.
+
 ### Extractos y cargas automáticas (2026-09-13)
 
 **Carpeta vigilada.** `Agente_ExtractosWatcher` pasó de la lista inline a un thread propio de
@@ -152,6 +189,15 @@ propia. Una transferencia futura a esa cédula caería en Expensas por la #483.
 
 **Santander.** También se detecta por el CBU de la cuenta (`0720175888000037071990`), para los PDF donde la
 palabra "Santander" no aparece entre las primeras 200 palabras que mira `detect_adapter()`.
+
+**Santander — el detalle es la primera línea sin monto.** La línea que sigue a un movimiento trae la contraparte
+(destinatario y cuenta, comercio y tarjeta, fondo o período) y ocupa siempre una sola línea: verificado sobre las 264
+filas de la cuenta en pesos. Hasta el 2026-09-13 cada línea sin monto pisaba la anterior, así que un movimiento que
+cerraba la hoja quedaba con la última línea del pie legal ("que utilicen la marca Santander.") y la regla por cuenta
+de destino no lo veía. Caso testigo: la mesada de Daniel del 2026-06-26 (fila 2170) cayó en Cambio de moneda por la
+#320. Hoy vale solo la primera, en pesos y en dólares; la tarjeta (`_process_tc_line`) sigue como antes. Las filas
+1981, 2251 y 2079 conservan el pie como detalle — su categoría sale del concepto y no cambia. La deduplicación no
+mira el detalle, así que un extracto superpuesto no duplica filas.
 
 **Binance — tres fuentes para la cuenta `BINANCE-USDT`:**
 
