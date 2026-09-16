@@ -66,7 +66,7 @@ al cerrar la Fase 1.
 | 1.2 | Corregir las distorsiones de la foto con SQL autorizado: regla `Pago tarjeta de credito` → Pago tarjeta crédito; `ACRED.PRESTAMO` → Préstamo recibido; `TITULOS` a confirmar con el usuario (compra de títulos → Inversiones) | **Hecho el 2026-09-15** — ninguna fila sin categoría por encima de 100 USDT |
 | 1.3 | Monitor de cobertura en el panel: último dato por cuenta y alerta a los 35 días. Decidir las 3 cuentas nunca cargadas (baja o extracto), traer lo que falta (Santander CA USD, BDV, Banesco agosto) y revisar los 3 PDF de Banesco de mayo–julio en `desconocidos/` | **Monitor hecho el 2026-09-16**; el umbral no se cumple todavía: 3 cuentas esperan extracto |
 | 1.4 | Mes incompleto a la vista: el panel lo marca mientras alguna cuenta no tenga datos posteriores a su último día | agosto deja de parecer un mes barato |
-| 1.5 | Cuotas de tarjeta con la fecha del resumen que las cobra, no la de la compra (pendiente de E2) | CUOTIFICACION 1-06…5-06 en cinco meses distintos |
+| 1.5 | Cuotas de tarjeta con la fecha del resumen que las cobra, no la de la compra (pendiente de E2) | **Hecho el 2026-09-16** — 43 de 55 filas en cuotas cambiaron de mes; las cuotas de un plan caen en meses distintos |
 | 1.6 | Saldo de fin de mes y conciliación: guardar `SALDO ANTERIOR` / `SALDO ACTUAL` de cada extracto y comprobar que saldo anterior + movimientos = saldo actual | cada extracto cierra o avisa que faltan filas |
 
 **Fase 2 — Clasificación que se sostiene sola** (objetivo 2; resto de E2)
@@ -99,7 +99,10 @@ al cerrar la Fase 1.
 `needs_review` de un clic, tasa de cambio diaria en `fin_exchange_rates`, captura por Gmail, `account` en las
 tablas `fin_*`.
 
-**Siguiente:** 1.4 (mes incompleto a la vista) y 1.5 (fecha de las cuotas), que resultó material — ver abajo.
+**Siguiente:** 1.4 (mes incompleto a la vista), con los **dos** bordes del mes: el mes en curso todavía abierto y,
+hacia atrás, el mes anterior al primer extracto real de cada cuenta. Un mes sin extracto no es un mes barato, no es
+un mes — noviembre 2025 lo mostró. Sin ese piso, el promedio de 4.3 y el costo de vida de 4.4 salen falsamente
+optimistas. El piso se mide desde el primer extracto de cada cuenta, no se elige a dedo.
 
 ### Fase 1 — registro de lo hecho
 
@@ -135,7 +138,7 @@ filas (1,5%)**, todas chicas — son las que espera el popup del paso 2.1. El pa
 **1.3 — monitor de cobertura** (2026-09-16, código). `FinanceScreen.get_coverage()` devuelve una fila por cuenta
 activa —último movimiento real, días de atraso, próximo cierre y semáforo— y `_CoverageTable` la muestra como
 quinta pestaña del notebook de categorías, junto a Gastos / Ingresos / Inversiones / Transferencias. El texto de la
-pestaña lleva la cuenta de cuentas en rojo (`Cobertura (6)` hoy), así que el estado se ve al abrir Finanzas sin
+pestaña lleva la cuenta de cuentas en rojo (`Cobertura (3)` hoy), así que el estado se ve al abrir Finanzas sin
 entrar a la pestaña. No depende del mes ni de los chips: es estado de carga, no del período.
 
 *Semáforo:*
@@ -159,13 +162,14 @@ Es el mismo motivo por el que `_binance_api_desde()` filtra por `import_id`, per
 sirve por cuenta.
 
 *Estado medido el 2026-09-16:* atrasadas Banesco CC VES (31/07, 47 días), BDV CA VES (01/08, 46) y Santander CA USD
-(03/08, 44). Sin datos, las 3 cuentas que nunca se cargaron. Las 9 restantes al día, tarjetas incluidas. **Ningún
+(03/08, 44). Las otras 9 al día, tarjetas incluidas, y ninguna en gris tras la baja de abajo. **Ningún
 resumen de tarjeta está atrasado.**
 
 *Cuentas nunca cargadas* — el usuario decidió darlas de baja: Santander Débito (5), BBVA CC ARS (6) y BBVA CA USD
-(7). `UPDATE fin_accounts SET is_active = 0 WHERE id IN (5, 6, 7);` — **sin aplicar al 2026-09-16**; hasta que se
-ejecute, el monitor las muestra en gris. Santander Débito importaba con `row_count = 0` en cada corrida; las dos de
-BBVA nunca se importaron.
+(7). `UPDATE fin_accounts SET is_active = 0 WHERE id IN (5, 6, 7);` — **ejecutado por el usuario el 2026-09-16**: el
+monitor pasó de 15 cuentas a 12 y de `Cobertura (6)` a `Cobertura (3)`, sin ninguna fila en gris. Santander Débito
+importaba con `row_count = 0` en cada corrida; las dos de BBVA nunca se importaron. Reversión:
+`UPDATE fin_accounts SET is_active = 1 WHERE id IN (5, 6, 7);`
 
 *Los 3 PDF de Banesco en `desconocidos/` no son datos faltantes:* son mayo, junio y julio de 2026, meses ya
 cargados (90, 14 y 15 filas). Llegaron ahí por la rama "reconocido pero sin filas extraídas" de
@@ -184,6 +188,60 @@ el 2026-01-22; "Look shopping adrogue" 6 cuotas el 2026-02-13. El peor caso es `
 cuotas de 191.088 ARS las tres el 2026-01-30, ~360 USDT cargados a enero que en realidad se pagaron en febrero,
 marzo y abril. Mientras siga así, el gasto mensual de cualquier mes con compras en cuotas está inflado y los
 siguientes vacíos.
+
+*Resuelto el 2026-09-16.* La fila cuenta en el mes del **cierre** del resumen que la lista, no en el del vencimiento
+(decisión del usuario): el cierre es lo que el resumen afirma, el vencimiento depende de cuándo se pague.
+
+*Por qué no se mueve `date`.* `uq_tx` es `(account_id, date, amount, raw_description)`, así que reescribir la fecha
+puede colisionar con otra fila del mismo plan, pierde la fecha real de la compra y deja que una reimportación del
+mismo resumen vuelva a insertar con la fecha vieja. En su lugar va **`fin_transactions.billing_date`** (`DATE NULL`,
+después de `date`): el cierre del resumen que cobra la fila, NULL cuando la fecha del movimiento ya es la del cobro.
+Los KPIs agrupan por `_SQL_FECHA = "COALESCE(t.billing_date, t.date)"` — `get_kpis`, `_get_categories_by_type`,
+`get_monthly_evolution`, `get_transactions` y `get_last_loaded_period`. `get_coverage` **no** lo usa a propósito:
+mide cuándo se cargó movimiento real, no cuándo se cobra.
+
+*Quién sella.* `_set_billing_dates()` (`Class_Finance.py`) marca las cuotas del import al cerrarlo. Lo llaman
+`BbvaArTarjeta.load()` en sus dos ramas —la normal y la del resumen ya importado— y `SantanderAr.load()`: Santander
+trae los consumos de tarjeta dentro del extracto de cuenta, con `import_id` distinto del resumen que aporta el ciclo,
+así que el ciclo no le sirve como fuente. `CitibankUs` no lo llama, no tiene cuotas.
+
+*El proxy está medido, no supuesto.* `fin_card_cycles.closing_date` cubre solo 6 de las 55 filas —los ciclos se
+empezaron a leer con los resúmenes de julio/agosto 2026 y las cuotas arrancan en noviembre 2025—. El resto sale de
+`fin_statement_imports.period_to`, que es `MAX(date)` de las filas del import: cobertura 100%, y contra el cierre real
+coincide exacto en 5 de los 6 casos donde existen los dos (el sexto difiere 5 días, mismo mes). Como solo se usa el
+mes, alcanza.
+
+*Backfill, ejecutado por el usuario el 2026-09-16* (subquery en vez de `LEFT JOIN` porque nada garantiza un solo ciclo
+por import y un `UPDATE` multi-tabla elegiría cualquiera de los dos):
+
+```sql
+UPDATE fin_transactions t
+  JOIN fin_statement_imports i ON i.id = t.import_id
+   SET t.billing_date = COALESCE(
+       (SELECT MIN(cc.closing_date) FROM fin_card_cycles cc WHERE cc.import_id = t.import_id),
+       i.period_to)
+ WHERE t.installment_current IS NOT NULL;
+```
+
+Reversión: `UPDATE fin_transactions SET billing_date = NULL WHERE installment_current IS NOT NULL;` y después
+`ALTER TABLE fin_transactions DROP COLUMN billing_date;`
+
+*Verificado tras el SQL:* 55 filas selladas y ninguna sin sellar; 0 filas fuera de cuotas tocadas; ningún cierre
+anterior a su compra (0 a 171 días); **43 de 55 cambiaron de mes, 1.055,64 USDT reubicados**, y las 12 restantes se
+quedan porque el resumen cerró dentro del mes de la compra. El peor caso quedó repartido: de las 3 cuotas de
+`Merpago/juliannahuelcapec` que estaban las tres en enero, 252,50 USDT pasaron a febrero.
+
+**Noviembre 2025 quedó en 0 y desapareció del panel**, y eso es el hallazgo lateral que abre 1.4: sus únicas filas
+eran cuotas de VAYPOL que llegaron por resúmenes de 2026. No hay ningún extracto cargado de ese mes — era un mes
+fantasma que se veía como el mes más barato del histórico.
+
+*Gasto mensual como lo lee el panel después del cambio (USDT):* 2025-12 122,49 · 2026-01 1.675,40 · 02 3.291,38 ·
+03 2.089,76 · 04 3.159,41 · 05 2.617,92 · 06 2.521,13 · 07 2.928,14 · 08 1.962,56.
+
+*Pendiente, fuera de este paso:* 87 consumos de tarjeta **sin** cuota (1.872,75 USDT) también caen en un mes distinto
+al del cierre que los cobra, contra 312 (8.301,42) que coinciden. Y dos filas de la cuenta 4 categorizadas
+`Otros gastos` que matchean el patrón de pago de tarjeta (14,78 USDT en 2026-06 y 14,46 en 2026-07): si son pagos van
+a `transfer`, hoy suman como gasto.
 
 ### Orden de trabajo (2026-09-13 — reemplazada por el plan consolidado del 2026-09-15)
 
