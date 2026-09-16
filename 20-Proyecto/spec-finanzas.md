@@ -36,7 +36,159 @@
 - **Account-first.** Las tablas `fin_*` no tienen dueño (`account`). Hoy hay un solo usuario; si el módulo se
   ofrece a terceros, conviene agregarlo antes de que crezcan los datos.
 
-### Orden de trabajo
+### Plan consolidado (2026-09-15)
+
+> Pedido del usuario: "necesito saber cómo van mis finanzas y reducir gastos; sin esto no tengo nada". Ordena según
+> ese pedido lo pendiente de E2–E6, de los puntos agregados y de la revisión del 2026-09-13. **Reemplaza la tabla
+> "Orden de trabajo"**, que queda abajo como historia. Un paso a la vez; cada paso cierra con un número verificado
+> contra la BD.
+
+**Foto del 2026-09-15** (consulta de solo lectura, USDT con la regla de signo de E1):
+
+| Qué | Dato |
+|-----|------|
+| Ingreso | Sueldo 9.936 en jun–ago: ~3.300 por mes. Ingresos totales: jun 4.540, jul 2.746, ago 2.876 |
+| Gasto | jun 2.865 · jul 3.281 · ago 1.754 — **agosto incompleto**: la cuenta Santander en pesos llega al 19/08 y las tarjetas al 14–27/08 |
+| Gasto promedio por mes, jun–ago | Familia 661 · Alquiler 468 · Cuotas de préstamo 450 · **sin categoría 315** · Supermercado 165 · Expensas 95 · Otros gastos 79 · Suscripciones 63 · Servicios 51 · Restaurantes 49 · Banco e impuestos 42 · Intereses y financiación 25 |
+| Distorsiones | 4 débitos "Pago tarjeta de credito visa/amex" de Santander sin categoría (1.033) cuentan como gasto y duplican las compras de la tarjeta · 2 `ACRED.PRESTAMO` de BBVA de abril (1.893) cuentan como ingreso · 6 `TITULOS …CUT` de BBVA de abril (786) cuentan como gasto |
+| Cobertura | 3 cuentas nunca cargadas: Santander Débito, BBVA CC ARS, BBVA CA USD · más de 35 días sin dato: Santander CA USD 43, BDV 45, Banesco 46 |
+| Higiene | 127 de 210 imports sin filas procesadas · 108 de 237 reglas activas sin aciertos · 0 ciclos de tarjeta · 0 tasas en `fin_exchange_rates` · `needs_review` y la IA sin uso |
+
+*Lectura provisoria:* Familia, Alquiler y préstamo suman ~1.580 por mes, la mitad del gasto. Junio ahorró 37% del
+ingreso; julio gastó más de lo que entró, en parte por dos pagos de tarjeta sin categoría. Los números valen recién
+al cerrar la Fase 1.
+
+**Fase 1 — Números en los que se puede confiar** (objetivos 1 y 5; ex E3 y parte de E2)
+
+| # | Paso | Cierra cuando |
+|---|------|---------------|
+| 1.1 | Terminar la carga en curso: 6 extractos de Santander y 6 resúmenes de tarjeta (Santander Visa y Amex, BBVA Visa y Mastercard) con cierre, vencimiento y cuotas a vencer | 48 filas nuevas, 6 ciclos y 32 meses de cuotas en BD |
+| 1.2 | Corregir las distorsiones de la foto con SQL autorizado: regla `Pago tarjeta de credito` → Pago tarjeta crédito; `ACRED.PRESTAMO` → Préstamo recibido; `TITULOS` a confirmar con el usuario (compra de títulos → Inversiones) | **Hecho el 2026-09-15** — ninguna fila sin categoría por encima de 100 USDT |
+| 1.3 | Monitor de cobertura en el panel: último dato por cuenta y alerta a los 35 días. Decidir las 3 cuentas nunca cargadas (baja o extracto), traer lo que falta (Santander CA USD, BDV, Banesco agosto) y revisar los 3 PDF de Banesco de mayo–julio en `desconocidos/` | **Monitor hecho el 2026-09-16**; el umbral no se cumple todavía: 3 cuentas esperan extracto |
+| 1.4 | Mes incompleto a la vista: el panel lo marca mientras alguna cuenta no tenga datos posteriores a su último día | agosto deja de parecer un mes barato |
+| 1.5 | Cuotas de tarjeta con la fecha del resumen que las cobra, no la de la compra (pendiente de E2) | CUOTIFICACION 1-06…5-06 en cinco meses distintos |
+| 1.6 | Saldo de fin de mes y conciliación: guardar `SALDO ANTERIOR` / `SALDO ACTUAL` de cada extracto y comprobar que saldo anterior + movimientos = saldo actual | cada extracto cierra o avisa que faltan filas |
+
+**Fase 2 — Clasificación que se sostiene sola** (objetivo 2; resto de E2)
+
+| # | Paso | Cierra cuando |
+|---|------|---------------|
+| 2.1 | Popup de categoría: clave corta, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13) | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
+| 2.2 | Pantalla "Revisión de categorías" por destinatario + clic visible en `_CategoryBar` (mejora 3) | reasignar un grupo crea la regla y la aplica |
+| 2.3 | Reglas: corregir las que tienen raya o sufijo de origen, desactivar las muertas, genéricas para planes de tarjeta, que gane la más específica (#269) | menos de 20 reglas activas sin aciertos |
+| 2.4 | Imports sin filas: revisar y borrar con autorización | 0 imports vacíos sin motivo |
+
+**Fase 3 — Tablero "cómo voy"** (objetivos 5 y 6)
+
+| # | Paso | Cierra cuando |
+|---|------|---------------|
+| 3.1 | Vista mensual de 12 meses: ingreso, gasto fijo / variable / extraordinario, ahorro y % de ahorro. Reutiliza `get_monthly_evolution` y `expense_class` | se ve en una pantalla si el mes cerró en positivo y por qué |
+| 3.2 | Comprometido del mes próximo: cuotas a vencer por tarjeta (`fin_card_installments_due`) + cuota de préstamo + fijos promedio | se sabe cuánto del próximo sueldo ya está gastado |
+| 3.3 | Resumen mensual por Telegram al cerrar el mes: ingreso, gasto, ahorro, 5 categorías principales y desvío contra el promedio (ex E4) | llega solo, sin pedirlo |
+
+**Fase 4 — Reducir gastos** (objetivos 4 y 6)
+
+| # | Paso | Cierra cuando |
+|---|------|---------------|
+| 4.1 | Recurrentes y suscripciones: `is_recurring` por comercio presente en 3 o más meses; lista con costo mensual y anual. Candidatos de la foto: Adobe, Anthropic, Claro, Netuno, Metrogas, comisiones de cuenta | cada ítem revisado con el usuario: se queda o se corta |
+| 4.2 | Costos evitables: comisiones, intereses por descubierto, impuestos de tarjeta, Monthly Service Fee de Citi, intereses de planes; total anual | se conoce el total anual y qué cambio lo baja |
+| 4.3 | Presupuesto por categoría = promedio de los 3 últimos meses cerrados; alerta al 80% y al 100% durante el mes (ex E6) | primera alerta real |
+| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro | número y progreso visibles en el panel |
+
+**Fase 5 — Mínimo esfuerzo** (objetivo 3; ex E4 y E6): IA para lo que las reglas no clasifican + cola
+`needs_review` de un clic, tasa de cambio diaria en `fin_exchange_rates`, captura por Gmail, `account` en las
+tablas `fin_*`.
+
+**Siguiente:** 1.4 (mes incompleto a la vista) y 1.5 (fecha de las cuotas), que resultó material — ver abajo.
+
+### Fase 1 — registro de lo hecho
+
+**1.2 — distorsiones corregidas** (2026-09-15, SQL ejecutado por el usuario).
+
+*Criterio de préstamo, decidido con el usuario:* devolver capital no es gasto, mueve patrimonio de un lado al otro.
+Las categorías 160 y 162 (`Cancelación de préstamo`) pasan a `transfer`; la 43 (`Cuotas de préstamo`) queda
+`expense` / `fixed`, porque la cuota mensual sí sale del ingreso del mes.
+
+*Ejecutado:* 21 filas reclasificadas a mano y 11 reglas nuevas — #516 `COMPRA DE DOLARES`→151, #517
+`IMPUESTO A LOS SELL`→46, #519 `IMPUESTO CEDULAR`→46, #520 `VISA PLAN V`→150, #521 `Tu pago en dólares`→20, #522
+`CANCEL.DEUDA C/SALDO`→20, #523 `REINTEGRO PROMO`→17, #524 `GO-INNERLY`→41, #525 `CRUZ ROJA`→12, #528 `FARMACITY`→4,
+más la #507 `Monthly Service Fee` que ya existía. Las 11 quedan con `hit_count = 0`: actúan sobre importaciones
+futuras, las filas ya cargadas se corrigieron por id.
+
+*Efecto:* mayo pasó de 4.391 a 2.435 de gasto y de −1.711 a +245 de ahorro. Sin categoría quedan **22 de 1.505
+filas (1,5%)**, todas chicas — son las que espera el popup del paso 2.1. El paso cierra: ninguna por encima de
+100 USDT.
+
+*KPIs 2026 verificados después del SQL* (ingreso / gasto / ahorro / inversión, USDT):
+
+| Mes | Ingreso | Gasto | Ahorro | Inversión |
+|-----|---------|-------|--------|-----------|
+| 01 | 3.575 | 1.970 | +1.605 | 807 |
+| 02 | 3.280 | 2.237 | +1.043 | 1.189 |
+| 03 | 2.586 | 2.012 | +574 | 997 |
+| 04 | 3.004 | 3.008 | −3 | 1.427 |
+| 05 | 2.680 | 2.435 | +245 | 4.243 |
+| 06 | 4.440 | 2.475 | +1.965 | 1.582 |
+| 07 | 2.746 | 2.863 | −117 | −136 |
+| 08 | 2.834 | 1.740 | +1.093 | −250 |
+
+**1.3 — monitor de cobertura** (2026-09-16, código). `FinanceScreen.get_coverage()` devuelve una fila por cuenta
+activa —último movimiento real, días de atraso, próximo cierre y semáforo— y `_CoverageTable` la muestra como
+quinta pestaña del notebook de categorías, junto a Gastos / Ingresos / Inversiones / Transferencias. El texto de la
+pestaña lleva la cuenta de cuentas en rojo (`Cobertura (6)` hoy), así que el estado se ve al abrir Finanzas sin
+entrar a la pestaña. No depende del mes ni de los chips: es estado de carga, no del período.
+
+*Semáforo:*
+
+| Estado | Cuándo | Color |
+|--------|--------|-------|
+| `sin_datos` | la cuenta no tiene ninguna fila cargada | gris |
+| `atraso` | tarjeta cuyo **próximo cierre ya pasó**, o cuenta con más de 35 días sin dato | rojo |
+| `aviso` | cuenta entre 29 y 35 días | naranja |
+| `ok` | el resto | verde |
+
+*Por qué una tarjeta no se mide en días.* Visa lleva 33 días sin movimiento y AmEx 27, y las dos están al día:
+cerraron el 20/08 y su próximo cierre es el 24/09. Medirlas por días las pintaría de rojo todos los meses en la
+ventana entre cierre y cierre. Lo que delata un resumen faltante es que `fin_card_cycles.next_closing_date` haya
+quedado en el pasado. Si la tarjeta no tiene ciclo cargado, cae al criterio de días.
+
+*Las filas sintéticas no cuentan como dato cargado.* `sync_binance_investment` escribe la fila de inversión con
+fecha de fin de mes (`classified_by = 'synthetic'`, hoy hasta 2026-09-30, una fecha futura). Si contara, Binance
+figuraría siempre al día. El monitor excluye `classified_by = 'synthetic'` y las fechas posteriores a `CURDATE()`.
+Es el mismo motivo por el que `_binance_api_desde()` filtra por `import_id`, pero ese método mira por sección y no
+sirve por cuenta.
+
+*Estado medido el 2026-09-16:* atrasadas Banesco CC VES (31/07, 47 días), BDV CA VES (01/08, 46) y Santander CA USD
+(03/08, 44). Sin datos, las 3 cuentas que nunca se cargaron. Las 9 restantes al día, tarjetas incluidas. **Ningún
+resumen de tarjeta está atrasado.**
+
+*Cuentas nunca cargadas* — el usuario decidió darlas de baja: Santander Débito (5), BBVA CC ARS (6) y BBVA CA USD
+(7). `UPDATE fin_accounts SET is_active = 0 WHERE id IN (5, 6, 7);` — **sin aplicar al 2026-09-16**; hasta que se
+ejecute, el monitor las muestra en gris. Santander Débito importaba con `row_count = 0` en cada corrida; las dos de
+BBVA nunca se importaron.
+
+*Los 3 PDF de Banesco en `desconocidos/` no son datos faltantes:* son mayo, junio y julio de 2026, meses ya
+cargados (90, 14 y 15 filas). Llegaron ahí por la rama "reconocido pero sin filas extraídas" de
+`procesar_extractos`. Se pueden borrar.
+
+*Extractos que faltan bajar para cerrar el umbral de 35 días:* BBVA Mastercard Black y Visa Signature del cierre
+~27/07 (el hueco entre los imports 182 y 191 explica que falte la cuota 04/06 de PRESTIGIO y que julio traiga solo
+dos filas); Santander CA/CC ARS desde el 20/08; Santander CA USD de agosto y septiembre; BBVA CA ARS desde el
+29/08; Banesco CC VES y BDV CA VES de agosto y septiembre.
+
+**1.5 — la fecha de las cuotas es material, no un detalle.** Medido el 2026-09-15: las cuotas se cargan con la
+fecha de la compra original, así que un plan entero cae en un solo mes. PRESTIGIO SA tiene las cuotas 01, 02, 03 y
+05 las cuatro el 2026-04-02, aunque vinieron de los imports 127, 149, 182 y 191 (resúmenes de mayo, junio, julio y
+septiembre). Pasa en los dos bancos: VAYPOL cuotas 3 a 6 todas el 2025-11-09; SPORTING cuotas 1, 3, 4, 5 y 6 todas
+el 2026-01-22; "Look shopping adrogue" 6 cuotas el 2026-02-13. El peor caso es `Merpago/juliannahuelcapec`: 3
+cuotas de 191.088 ARS las tres el 2026-01-30, ~360 USDT cargados a enero que en realidad se pagaron en febrero,
+marzo y abril. Mientras siga así, el gasto mensual de cualquier mes con compras en cuotas está inflado y los
+siguientes vacíos.
+
+### Orden de trabajo (2026-09-13 — reemplazada por el plan consolidado del 2026-09-15)
+
+E1 quedó hecho; E2 pasa a la Fase 2 y al paso 1.5, E3 a la Fase 1, E4 al paso 3.3 y la Fase 5, E5 al paso 4.4 y E6
+al paso 4.3 y la Fase 5.
 
 | Etapa | Contenido | Objetivos | Estado |
 |-------|-----------|-----------|--------|
@@ -122,7 +274,8 @@ categoría 49 → 32. KPIs 2026 verificados contra la BD después de migrar:
 
 **Pendiente de E2 (código):**
 - Las reglas comparan contra un texto distinto del que se ve (sufijo de origen ` — 100`): 38 reglas sin aciertos.
-- Debe ganar la regla más específica: hoy #269 y #320 quedan tapadas por otras.
+- Debe ganar la regla más específica: hoy #269 y #320 quedan tapadas por otras. *(2026-09-14: la #320 se desactivó
+  en el paso 4 y las contrapartes que tapaba tienen regla propia a prioridad 30; la #269 sigue igual.)*
 - La aplicación retroactiva solo debe completar filas sin categoría, sin pisar las clasificadas.
 - Reglas genéricas para los planes de tarjeta.
 - El popup de categorías no muestra ni edita `expense_class`.
@@ -152,7 +305,8 @@ extracto de Santander.
   destinatario en el extracto.
 - **(c) Empata con la #320.** Las reglas del popup se guardan con prioridad 50, la misma que `TRANSFERENCIA` →
   Cambio de moneda; con `ORDER BY priority, id` gana la #320 por id menor. Complementa "Debe ganar la regla más
-  específica".
+  específica". Desde el 2026-09-14 la #320 está inactiva (paso 4), pero el empate sigue valiendo contra cualquier
+  regla genérica de prioridad 50.
 
 *Mejoras recomendadas, en el orden acordado:*
 1. ~~Datos de Daniel y Yolemi~~ — hecho (arriba).
@@ -163,9 +317,57 @@ extracto de Santander.
    o cuenta, con cantidad, total y la regla que clasificó el grupo. El error casi nunca es un movimiento suelto sino
    un destinatario entero: reasignar el grupo crea la regla con la clave corta y la aplica hacia atrás. En
    `_CategoryBar` (pedido 3): cursor de mano, "›" al final de cada fila y color de fondo al pasar el mouse.
-4. **Revisar la #320 `TRANSFERENCIA`.** 200 aciertos; hoy deja 156 transferencias en Cambio de moneda: cuenta propia,
-   Nelson, Brian, el alquiler a Sergio di Sabato. La vista del paso 3 es la herramienta para desarmarla por
-   destinatario.
+4. ~~Revisar la #320 `TRANSFERENCIA`~~ — hecho el 2026-09-14 (SQL ejecutado por el usuario). Decía "todo lo que
+   contenga TRANSFERENCIA es Cambio de moneda" y ganaba siempre: tapaba 156 filas, entre ellas cinco meses de alquiler
+   y dos expensas que no contaban como gasto. Se desarmó por contraparte, sin esperar la vista del paso 3:
+   - **Reglas nuevas, prioridad 30:** #497 `2 3959239959` (CUIL propio en el detalle de Santander) → Entre cuentas
+     propias; #498 `2 0182540472` (Sergio Ariel di Sabato; el alquiler desde abril, cuando termina Avellaneda Pet
+     Mall) → Alquiler; #499 `3 0716676737` (Fideicomiso 25 de Mayo) → Expensas; #500 regex
+     `^TRANSFERENCIA( [(][0-9]+[)])?$` → Entre cuentas propias. La #500 es para BBVA 196-009369/5, cuyo extracto no
+     trae contraparte: 20 de las 21 "TRANSFERENCIA | 100" tienen su par exacto (mismo monto, ±3 días) entrando en
+     Santander desde el CUIL propio. No coincide con COE, CAP/CCP, TC ni Santander.
+   - **Desactivadas:** #320; #62-65 (`TRANSFERENCIA RECIBIDA/REALIZADA/INMEDIATA/NO GRAVADA` → Entre cuentas propias,
+     prioridad 100 — sin la #320 hacían lo mismo); #393, #396, #399 y #491 (patrón con raya, reemplazadas).
+   - **Filas, por id y solo las que estaban en Cambio de moneda por regla:** 139 → Entre cuentas propias (84 de
+     Santander con el CUIL propio, 35 BBVA "TRANSFERENCIA" y 20 BBVA COE, que ahora toma la #323), 6 → Alquiler,
+     2 → Expensas.
+   - **Gastos USDT, todas las cuentas:** abr 2.616 → 3.714, may 4.116 → 4.676, jun 2.283 → 2.853, jul 2.563 → 3.041,
+     ago 1.305 → 1.748. Ingresos sin cambio.
+   - **Criterio que queda:** no hay regla genérica para transferencias. Una transferencia a alguien nuevo queda sin
+     categoría y cuenta como gasto hasta clasificarla, en vez de esconderse como transferencia. Hasta que se arregle
+     el popup (paso 2), clasificarla desde ahí no crea una regla que acierte.
+   - **Las 9 filas que quedaron en Cambio de moneda sin regla**, decididas una por una con el usuario el 2026-09-14:
+     - Brian Nahuel Villan (2215), reintegro de un restaurante → Restaurantes. Ivess el Jumillano (2100), agua en
+       bidones → Supermercado, con regla `3 0537882871` porque es un proveedor que se repite (por Mercado Pago ya
+       caía en Supermercado con las #367 y #385). Ejecutado.
+     - Nelson Juvenal Ruiz hace dos cosas: instaló el aire acondicionado y a veces le vende USD al usuario, que le
+       paga en pesos y recibe por Zelle en Citi. La 2030 (11/05, 214.500) tiene su par exacto — Zelle de 150 USD de
+       NELSON RUIZ el mismo día en Citi (fila 1919), 1.430 ARS/USD — así que es compra de dólares y se queda en
+       Cambio de moneda. La 2073 (25/07, 370.000) fue el aire, confirmado por el usuario; no tiene Zelle en Citi,
+       cargado hasta septiembre → Mantenimiento, ejecutado. Nelson queda sin regla: sus pagos se deciden cruzando
+       contra un Zelle entrante del mismo día. Brian tampoco lleva regla: la próxima transferencia no tiene por qué ser
+       lo mismo.
+     - Promo de MODO (2314, +10.000 el 25/06) → Reintegros y bonificaciones, con regla #502 `PROMOMODO`: la #72
+       `PROMO MODO` no la ve porque la transferencia escribe la palabra junta. Ejecutado.
+     - La 2079 (100.000 el 29/07, "Transferencia no gravada") → Entre cuentas propias. Se importó antes de `ddb99fb`
+       y quedó con el pie legal como detalle; las otras 15 "no gravadas" de Santander van todas a nombre del usuario.
+       Con el parser corregido una fila así trae su detalle y la toma la #497. Ejecutado.
+     - Las BBVA CAP chicas (1696, 1852, 1957) quedan como están.
+   - **Hallazgo — las COE de BBVA 196-009369/5 son compras de USDT, no transferencias propias.** De 33, 24
+     (9,76 M ARS) tienen una compra `C2C BUY ARS` en Binance por el mismo monto y ±2 días; 9 chicas (521.400) no
+     tienen par. El usuario ya había pasado 1274 y 1275 a Cambio de moneda a mano en enero. La #323 las manda a Entre
+     cuentas propias, y este paso movió ahí 20 de ellas: para los KPIs da lo mismo (las dos categorías son transfer),
+     pero al netear transferencias propias (E3) esas filas no tendrían par. Reemplaza la duda anterior, "18 de las
+     20 COE no tienen par en Santander": no lo tienen porque no van a Santander.
+     *Decidido y ejecutado el 2026-09-14:* la #323 pasa a Cambio de moneda y las 22 COE con par P2P que estaban en
+     Entre cuentas propias se mueven ahí; las 9 sin par se quedan. Seis COE coincidían además en monto con un ingreso
+     propio y se revisaron una por una. En 1320, 1927 y 1716 ese ingreso de Santander (motivo "hab") tiene su par en
+     un `HABERES` de BBVA del mismo día: la transferencia propia es el HABERES. En 1275 y 1279 el ingreso cae en
+     tarjetas de crédito. El 29/01 salieron de BBVA dos 850.000, la COE 1262 y la `TRANSFERENCIA` 1263, clasificadas
+     a mano al revés del patrón (TRANSFERENCIA → Santander, COE → P2P): se intercambian. Lo que queda de patrón para
+     BBVA 196-009369/5: `TRANSFERENCIA` y `HABERES` van a Santander (Entre cuentas propias), `COE` a un vendedor P2P
+     (Cambio de moneda).
+   - Las reglas con raya 308, 311, 312, 313, 364, 394, 395, 434, 451 y 455 quedan para el paso 2.
 
 ### Extractos y cargas automáticas (2026-09-13)
 
