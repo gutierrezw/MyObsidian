@@ -143,10 +143,21 @@ vigente por mes está en el paso 1.5. Es la contracara esperada de 1.2: las regl
 importaciones futuras y lo están haciendo.
 
 **1.3 — monitor de cobertura** (2026-09-16, código). `FinanceScreen.get_coverage()` devuelve una fila por cuenta
-activa —último movimiento real, días de atraso, próximo cierre y semáforo— y `_CoverageTable` la muestra como
-quinta pestaña del notebook de categorías, junto a Gastos / Ingresos / Inversiones / Transferencias. El texto de la
-pestaña lleva la cuenta de cuentas en rojo (`Cobertura (3)` hoy), así que el estado se ve al abrir Finanzas sin
-entrar a la pestaña. No depende del mes ni de los chips: es estado de carga, no del período.
+activa —último movimiento real, días de atraso, próximo cierre y semáforo— y `_CoverageTable` la muestra en el panel
+derecho como segunda vista, alternando con las transacciones del período. No depende del mes ni de los chips: es
+estado de carga, no del período.
+
+**Corregido el mismo día — nació como quinta pestaña del notebook de categorías** (junto a Gastos / Ingresos /
+Inversiones / Transferencias) y ahí estaba mal por dos motivos. De fondo: la cobertura **no es una categoría**, y el
+notebook entero responde al mes y a los chips, así que colgarla ahí ligaba dos cosas que no se parecen. Visible: con
+cinco pestañas en 280 px el título se truncaba a `Cobertura (` y el contador —lo único que hacía que el estado se
+viera sin entrar, que era el objetivo del paso— quedaba invisible; `Ingresos` y `Transferencias` también se cortaban.
+
+Hoy el encabezado del panel derecho tiene dos títulos clickeables, `Últimas transacciones` y `Cobertura (N)`: el
+activo va en negro, el otro en gris, y el contador se pinta en rojo cuando hay cuentas esperando extracto. La tabla
+gana el ancho completo del panel (columnas 260/120/90/130 en vez de 175/90/65/95) y el pie de estado pasa a decir
+cuántas cuentas hay y cuántas esperan extracto. El filtro de categoría sigue viviendo en `_TxnTable` —expuesto como
+`category_filter`— para que el botón `✕ categoría` reaparezca al volver sin duplicar el estado en el panel.
 
 *Semáforo:*
 
