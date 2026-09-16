@@ -135,6 +135,13 @@ filas (1,5%)**, todas chicas — son las que espera el popup del paso 2.1. El pa
 | 07 | 2.746 | 2.863 | −117 | −136 |
 | 08 | 2.834 | 1.740 | +1.093 | −250 |
 
+*Nota del 2026-09-16 — estos totales ya no coinciden con la BD, y no por un error:* filas viejas se reclasificaron
+después (las reglas nuevas de este paso pegando al reimportar) y al entrar al grupo `expense` subieron el total del
+mes. Medido: **ninguna fila se creó después del 2026-09-15**, pero hay filas de abril a julio con `updated_at` del
+2026-09-16. Mayo pasó de 2.435 a 2.587 y abril de 3.008 a 3.160 sin que se cargara un solo extracto nuevo. El gasto
+vigente por mes está en el paso 1.5. Es la contracara esperada de 1.2: las reglas se escribieron para actuar sobre
+importaciones futuras y lo están haciendo.
+
 **1.3 — monitor de cobertura** (2026-09-16, código). `FinanceScreen.get_coverage()` devuelve una fila por cuenta
 activa —último movimiento real, días de atraso, próximo cierre y semáforo— y `_CoverageTable` la muestra como
 quinta pestaña del notebook de categorías, junto a Gastos / Ingresos / Inversiones / Transferencias. El texto de la
@@ -211,6 +218,11 @@ empezaron a leer con los resúmenes de julio/agosto 2026 y las cuotas arrancan e
 coincide exacto en 5 de los 6 casos donde existen los dos (el sexto difiere 5 días, mismo mes). Como solo se usa el
 mes, alcanza.
 
+*Y quedó validado end-to-end después del backfill:* comparando el gasto mensual con el proxy contra el gasto con el
+`billing_date` realmente escrito, los 12 meses dan **idéntico**. De las 6 filas que tienen ciclo real, 3 traían
+`period_to` 5 días antes del cierre (22/08 contra 27/08) y 3 coincidían, y ninguna cruza el borde del mes. El proxy
+no cambió ni un resultado.
+
 *Backfill, ejecutado por el usuario el 2026-09-16* (subquery en vez de `LEFT JOIN` porque nada garantiza un solo ciclo
 por import y un `UPDATE` multi-tabla elegiría cualquiera de los dos):
 
@@ -235,8 +247,11 @@ quedan porque el resumen cerró dentro del mes de la compra. El peor caso quedó
 eran cuotas de VAYPOL que llegaron por resúmenes de 2026. No hay ningún extracto cargado de ese mes — era un mes
 fantasma que se veía como el mes más barato del histórico.
 
-*Gasto mensual como lo lee el panel después del cambio (USDT):* 2025-12 122,49 · 2026-01 1.675,40 · 02 3.291,38 ·
-03 2.089,76 · 04 3.159,41 · 05 2.617,92 · 06 2.521,13 · 07 2.928,14 · 08 1.962,56.
+*Gasto mensual como lo lee el panel después del cambio (USDT):* 2025-06 33,14 · 2025-07 116,17 · 2025-12 122,49 ·
+2026-01 1.675,40 · 02 3.291,38 · 03 2.089,76 · 04 3.159,41 · 05 2.617,92 · 06 2.521,13 · 07 2.928,14 · 08 1.962,56.
+
+Noviembre 2025 no era el único mes fantasma: **2025-06 (33,14), 2025-07 (116,17) y 2025-12 (122,49)** siguen en la
+lista con un gasto que no es el de un mes de vida. Son el material del piso de 1.4 — el piso se mide, no se elige.
 
 *Pendiente, fuera de este paso:* 87 consumos de tarjeta **sin** cuota (1.872,75 USDT) también caen en un mes distinto
 al del cierre que los cobra, contra 312 (8.301,42) que coinciden. Y dos filas de la cuenta 4 categorizadas
