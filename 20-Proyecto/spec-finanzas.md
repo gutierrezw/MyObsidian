@@ -362,6 +362,41 @@ arreglar el lector. No se toca sin decisión.
 Lo que **no** resuelve A: agosto sigue viéndose como mes normal aunque le faltan los extractos del 20 y el 27. Marcar
 el mes anterior como incompleto requiere guardar el período real de cada extracto (opción B, primer paso de 1.6).
 
+*Lector de cuotas con guion arreglado (2026-09-17):* `parse_plan_installment()` (`Class_Finance.py`) reconoce la cuota
+del plan escrita en la descripción (`CUOTIFICACION 3-06 (TNA 79,00)` → 3 de 6). La usan los dos lectores que traen
+planes: `BbvaArTarjeta._parse_cuota()` cuando no hay `C.02/06` y `SantanderAr._process_tc_line()` cuando la columna de
+cuota no trae "N de M". Con la cuota reconocida, `_set_billing_dates()` la sella en el resumen que la cobra, igual que
+el resto de las cuotas. Decisiones:
+
+- La cuota no lleva cero adelante (`1-06`, `9-09`): así una fecha `07-12` no pasa por cuota. Se exige además
+  cuota ≤ total.
+- En BBVA la cuota del plan **queda** en `description`; la de `C.02/06` se quita. Las filas de un plan solo se
+  distinguen por ese número: sin él la tabla muestra seis filas iguales.
+- Las 24 filas ya cargadas no se reprocesan: `scan_extractos()` borró los PDFs. Se corrigen por SQL con la misma regla
+  (cuota, total y `billing_date` = cierre del ciclo del import, o su último movimiento si no tiene ciclo).
+
+*Verificado (2026-09-17, `verifica_cuotas_plan.py`):* no queda ninguna cuota de plan sin reconocer. Los cuatro planes
+de Santander tienen una cuota por mes y no les falta ninguna; la 6-06 del plan de TNA 83,10 cae en el resumen de
+septiembre, todavía sin cargar. En BBVA quedan dos cosas abiertas:
+
+- Faltan CUOTIFICACION 6-06, VISA PLAN V 6-06 y `FINANC DE SALDO` 1-06: **no está cargado el resumen de fines de
+  julio de ninguna de las dos tarjetas**. Entre los imports 182/183 (archivos `2026-07-02`) y 191/192 (cierre 27/08)
+  no hay ninguno, tampoco sin filas. Es la misma ausencia que la cuota 04 de PRESTIGIO medida en 1.5.
+- El import 183 (Visa) cuenta en julio y **está bien**. Tiene un consumo del 01/07 (LUCCIANOS), así que su cierre es
+  del 01/07 o posterior, en línea con el archivo `BBva VISA 2026-07-02.pdf`. Una primera lectura lo daba por resumen
+  de junio "por la secuencia de cuotas": la secuencia solo dice que es el siguiente al de mayo, no en qué mes cierra.
+- Queda abierto el import 182 (Mastercard). Su último movimiento es del 26/06, así que sus cuotas cuentan en junio.
+  Se cargó junto con el 183 desde `BBva Master 2026-07-02.pdf`, y en agosto las dos tarjetas cerraron el mismo día.
+  Si también compartieron el cierre del 02/07, sus cuotas son de julio. Se resuelve con el cierre impreso en el PDF.
+
+*El proxy sí cruza de mes en Santander.* Los imports 290, 305 y 315 son una segunda carga de extractos que ya estaban
+(la primera: 249, 111 y 244). En esa segunda carga solo entraron las filas nuevas, de 1 a 7 por sección, así que el
+último movimiento del import cae en el mes anterior al del extracto. Así, sus 5 cuotas cuentan un mes antes: 305 en
+febrero y no en marzo, 290 en mayo y no en junio, 315 en junio y no en julio. En Santander el cierre de la tarjeta es
+la fecha del nombre del archivo, que coincide con el último movimiento del PDF entero. Los dos ciclos leídos lo
+confirman: 23/07 y 20/08. El riesgo no es solo de las recargas: `SantanderAr` sella con el último movimiento de la
+sección, y a una tarjeta con poco uso le puede pasar lo mismo en una primera carga.
+
 ### Orden de trabajo (2026-09-13 — reemplazada por el plan consolidado del 2026-09-15)
 
 E1 quedó hecho; E2 pasa a la Fase 2 y al paso 1.5, E3 a la Fase 1, E4 al paso 3.3 y la Fase 5, E5 al paso 4.4 y E6
