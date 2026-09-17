@@ -389,6 +389,21 @@ septiembre, todavía sin cargar. En BBVA quedan dos cosas abiertas:
   Se cargó junto con el 183 desde `BBva Master 2026-07-02.pdf`, y en agosto las dos tarjetas cerraron el mismo día.
   Si también compartieron el cierre del 02/07, sus cuotas son de julio. Se resuelve con el cierre impreso en el PDF.
 
+*BBVA cerrado (2026-09-17, mismo día):* las dos cosas abiertas de arriba quedan resueltas.
+
+- **Entró el resumen del 30/07** (imports 335 Mastercard y 336 Visa, con ciclo) y trajo las cuotas que faltaban. La
+  1-06 del plan de TNA 69,00 figura como `CUOTIFICACION`; la 2-06 de agosto, como `FINANC DE SALDO`. Tres cuotas de
+  plan entraron sin reconocer: las dos 6-06 de TNA 79,00 y esa 1-06. Las 6-06 caían en febrero, el mes del alta.
+  Causa probable, no confirmada: la app que corre el watcher arrancó a las 02:20 y el lector nuevo se guardó a las
+  02:27. El regex actual sí las reconoce. Se corrigieron por SQL con la misma regla (cuota, total y cierre del ciclo,
+  30/07). **Un lector nuevo entra en el watcher recién al reiniciar la app.**
+- **El import 182 cierra en julio.** El homebanking lista los cierres de las dos tarjetas, el mismo día para
+  Mastercard y Visa: 02/07, 30/07 y 27/08. Las 5 cuotas del 182 pasaron de junio a julio con `billing_date` =
+  2026-07-02: SPORTING 6/6, CUOTIFICACION 5-06, PRESTIGIO 3/6 ×2 y ASTERISCO 1/2. Las 3 del 183 van a la misma fecha
+  sin cambiar de mes. El último movimiento no alcanzaba: el 182 no tuvo consumos entre el 27/06 y el cierre.
+- **Consecuencia de contar la cuota en el mes del cierre:** BBVA cerró dos veces en julio y ninguna en junio. Junio
+  queda sin cuotas de BBVA y julio carga dos resúmenes por tarjeta. No es un hueco de carga.
+
 *El proxy sí cruza de mes en Santander.* Los imports 290, 305 y 315 son una segunda carga de extractos que ya estaban
 (la primera: 249, 111 y 244). En esa segunda carga solo entraron las filas nuevas, de 1 a 7 por sección, así que el
 último movimiento del import cae en el mes anterior al del extracto. Así, sus 5 cuotas cuentan un mes antes: 305 en
@@ -437,13 +452,13 @@ al paso 4.3 y la Fase 5.
   `uq_cat_name (name)`.
 - `parent_id` quedó en NULL en todas: el mapa es plano. La columna sigue existiendo.
 
-**Mapa vigente (31 categorías):**
+**Mapa vigente (32 categorías; Mudanza se sumó el 2026-09-17, ver "Revisión del 2026-09-17"):**
 
 | Tipo | Clase | Categorías |
 |------|-------|-----------|
 | expense | fixed | Alquiler, Servicios, Suscripciones, Expensas, Familia, Cuotas de préstamo, Intereses y financiación, Banco e impuestos |
 | expense | variable | Supermercado, Restaurantes, Transporte, Salud, Médico, Hogar, Ropa y compras personales, Otros gastos |
-| expense | extraordinary | Tecnología, Viajes, Mantenimiento, Cancelación de préstamo |
+| expense | extraordinary | Tecnología, Viajes, Mantenimiento, Cancelación de préstamo, Mudanza |
 | income | — | Sueldo, Reintegros y bonificaciones, Intereses ganados, Otros ingresos |
 | transfer | — | Pago tarjeta crédito, Entre cuentas propias, Cambio de moneda, Préstamo recibido |
 | investment | — | Inversiones, Aportes a IB, Retención USDT |
@@ -580,6 +595,51 @@ extracto de Santander.
      BBVA 196-009369/5: `TRANSFERENCIA` y `HABERES` van a Santander (Entre cuentas propias), `COE` a un vendedor P2P
      (Cambio de moneda).
    - Las reglas con raya 308, 311, 312, 313, 364, 394, 395, 434, 451 y 455 quedan para el paso 2.
+
+**Revisión del 2026-09-17 — por qué los gastos de abril a julio casi igualan a los ingresos.**
+
+Medido con un script de solo lectura que repite el cálculo del gráfico de evolución (`_SQL_NETO` sobre `amount_usdt`,
+mes de cobro, `tracked_since`); los totales cuadran con el gráfico. Valores en USD, **antes** de mover filas a Mudanza:
+
+| Mes | Ingresos | Gastos | Fijo | Variable | Extraord. |
+|-----|----------|--------|------|----------|-----------|
+| Ene | 3.575 | 1.747 | 1.040 | 415 | 292 |
+| Feb | 3.280 | 2.088 | 1.620 | 455 | 0 |
+| Mar | 2.586 | 2.206 | 1.744 | 463 | 0 |
+| Abr | 3.000 | 2.972 | 2.261 | 712 | 0 |
+| May | 2.680 | 2.611 | 1.891 | 677 | 27 |
+| Jun | 4.440 | 2.523 | 1.953 | 560 | 0 |
+| Jul | 2.751 | 3.374 | 2.456 | 550 | 242 |
+| Ago | 2.834 | 1.950 | 1.442 | 494 | 0 |
+
+- **No es efecto dólar.** La tasa se movió entre 1.460 y 1.580; el gasto en pesos pasó de 2,2–2,6 M (ene–mar) a
+  3,2–4,6 M (abr–jul).
+- **Abril es la mudanza** (confirmado por el usuario). Al firmar pagó la reserva de 750.000 (#1545, 01/04), 860.000 el
+  17/04 (#1583) y 750 USD de garantía en efectivo. La reserva queda en Alquiler como el mes de abril. Los 860.000, el
+  retiro de 200.000 del 16/04 (#1582) y la cerrajería del 17/04 (#1584) pasan a la categoría nueva **Mudanza**
+  (`expense` / `extraordinary`, filas `manual`; SQL ejecutado y verificado por el usuario). El reparto entre alquiler
+  y gastos de entrada es aproximado: no hay desglose del contrato. En abril el total no cambia; el fijo baja de 2.261 a
+  1.676, el variable de 712 a ~565 y el extraordinario sube de 0 a ~732.
+- **La garantía es inversión, no gasto.** Los 750 USD salieron de un dólar MEP del 15/04: compra de AL30 por
+  1.046.021 (#1946, 1.048.480 con gastos) y venta por U$S 742,39 (la #1947, 100,86 ARS, lleva el número de esa venta).
+  Para el usuario comprar dólares MEP es inversión y la #1946 queda en Inversiones: los dólares siguen siendo suyos y
+  vuelven al terminar el contrato. Se descartó una categoría "Depósito en garantía" (`transfer`). Dos límites:
+  `amount_usdt` convierte a la tasa USDT (~1.469) y da 714 USD en vez de 742; y la punta en dólares no está en la BD —
+  **BBVA CA USD (id 7) está inactiva y sin filas**, y `BbvaArCuenta` guarda todo como ARS.
+- **La mudanza se pagó con dos préstamos BBVA:** 1.800.000 el 15/04 (#1943) y 1.000.000 el 20/04 (#1952), en Préstamo
+  recibido. Probable, no confirmado: sus cuotas son la suba de Cuotas de préstamo desde junio (débito
+  `196-96-00127796`: 507, 421 y 421 USD en jun–ago, contra 194 del `00091422` en abril). Una cuota de 670.000–790.000
+  es mucha para 2,8 M: puede juntar también el préstamo desembolsado en mayo (ver "Filas que cambiaron de categoría").
+- **Lo que subió y se quedó:** Alquiler ~360 → ~460 desde mayo (di Sabato; hasta marzo, Avellaneda Pet Mall),
+  Servicios ~27 → ~60 y Otros gastos ~80 → 160–250. Familia viene alta desde febrero (~780): no es de la mudanza.
+- **No es suba real:** Intereses y financiación (el −228 de febrero baja el promedio de ene–mar) y Expensas (abril en 0
+  y mayo en 137: un pago corrido de mes).
+- **Julio:** Familia 986, el aire acondicionado de 370.000 (#2073, ya en Mantenimiento), 126 USD sin categoría y los dos
+  cierres de BBVA (las 5 cuotas del 182, ~90.700 ARS).
+- **Agosto (1.950) probablemente está incompleto:** Expensas en 0 y Servicios en 21.
+
+Queda abierto: los 126 USD sin categoría de julio; qué préstamo es el `00127796`; y cargar BBVA CA USD, que pide un
+lector que distinga la moneda.
 
 ### Extractos y cargas automáticas (2026-09-13)
 
