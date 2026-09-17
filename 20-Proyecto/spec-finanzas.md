@@ -104,6 +104,10 @@ hacia atrás, el mes anterior al primer extracto real de cada cuenta. Un mes sin
 un mes — noviembre 2025 lo mostró. Sin ese piso, el promedio de 4.3 y el costo de vida de 4.4 salen falsamente
 optimistas. El piso se mide desde el primer extracto de cada cuenta, no se elige a dedo.
 
+*Cambio de enfoque 2026-09-16:* el piso **no** sale del primer extracto de cada cuenta — un extracto en cero no deja
+rastro en BD, así que "primer extracto" confunde cuenta sin movimiento con extracto faltante. Queda declarado por
+cuenta en `fin_accounts.tracked_since` con default 2026-01. Motivo y medición en el registro de 1.4.
+
 ### Fase 1 — registro de lo hecho
 
 **1.2 — distorsiones corregidas** (2026-09-15, SQL ejecutado por el usuario).
@@ -268,6 +272,95 @@ lista con un gasto que no es el de un mes de vida. Son el material del piso de 1
 al del cierre que los cobra, contra 312 (8.301,42) que coinciden. Y dos filas de la cuenta 4 categorizadas
 `Otros gastos` que matchean el patrón de pago de tarjeta (14,78 USDT en 2026-06 y 14,46 en 2026-07): si son pagos van
 a `transfer`, hoy suman como gasto.
+
+**1.4 — los dos bordes del mes** (en curso desde 2026-09-16). Medido en solo lectura antes de tocar el panel.
+
+*Techo (mes en curso).* 2026-09 da **gasto 0,00**: sus 11 filas son de Citi y Binance, ninguna de gasto, porque los
+extractos de Santander y BBVA cierran el 20 y el 27. El panel abre en ese mes (`get_last_loaded_period()`), así que
+muestra cero como si fuera el mes. Agosto también está incompleto (1.962 contra 2.500-3.300 de la serie).
+`fin_transactions` llega a 2026-09-30 por las filas sintéticas de Binance (fin de mes): toda marca de "hasta dónde hay
+datos" las excluye, igual que `get_coverage()`.
+
+*Piso (histórico).* 2025-06 y 2025-07 son escombro de cuotas viejas que trae el resumen de enero; 2025-08 a 2025-11 no
+existen; 2025-12 es parcial (los extractos arrancan entre el 18 y el 30/12). Desde 2026-01 todas las cuentas que
+existían tienen movimiento. El primer movimiento por cuenta **no sirve de piso**: Banesco aparece en 2026-05, pero el
+usuario tiene sus extractos y están en cero hasta junio — no es un hueco, es una cuenta sin movimiento.
+`process_pdf()` manda a `desconocidos/` todo PDF con `rows_found = 0`, así que un mes en cero no deja rastro y la BD
+no lo distingue de un extracto que falta (anotado para 1.6).
+
+*Decisión del usuario:* fecha de inicio declarada por cuenta, **default 2026-01** — 2025 no se reconstruye (los bancos
+dan ~12 meses). Banco de Venezuela sigue activa aunque tiene gasto 0 desde junio: darla de baja crearía otro hueco.
+SQL ejecutado por el usuario el 2026-09-16:
+
+```sql
+ALTER TABLE fin_accounts
+  ADD COLUMN tracked_since DATE NOT NULL DEFAULT '2026-01-01'
+  COMMENT 'Desde cuando la cuenta cuenta en el historico de Finanzas: antes de esta fecha sus meses vacios no son hueco de carga. Default 2026-01 = piso del modulo; 2025 no se reconstruye (los bancos dan ~12 meses)'
+  AFTER is_active;
+```
+
+Reversión: `ALTER TABLE fin_accounts DROP COLUMN tracked_since;`. Todavía no la lee ningún código: la consume la marca
+de bordes del panel, pendiente de diseño.
+
+*Enero en estudio.* Da 1.675 contra 2.768 de promedio feb-jul. **No falta ningún extracto**: todas las cuentas tienen
+enero con filas normales (Santander ARS 47 contra 44-76; tarjetas dentro de su rango). El faltante se concentra en
+gastos fijos — Familia −558, Alquiler −193, Intereses −162, Préstamo −124, Expensas −99 — y Tecnología +291 lo
+compensa en parte. Hipótesis: pagos de enero corridos a febrero (el mes más caro de la serie, 3.291; enero + febrero
+= 2.483 por mes, en línea con el resto). Si se confirma, enero es un mes válido y el piso queda en 2026-01. Para
+medirlo se cargó el extracto de Santander 21/11/2025–23/12/2025.
+
+*Enero resuelto (fila por fila, sin necesitar diciembre): es un mes real, el piso queda en 2026-01.* Los fijos no
+faltan, **subieron durante el año**: alquiler 346 → 438-484 desde mayo (abril trae 2 pagos, 1.097, y eso infla el
+promedio); el préstamo BBVA de ~195 se canceló en mayo (1.956) y desde junio hay otro de 421-507; expensas (BDV, luego
+Banesco) 42 → 86-271. Lo único corrido es **una transferencia a Familia** de Santander: la de enero salió el 03/02
+(224) y febrero tiene dos. La hipótesis "febrero alto por pagos de enero" explica solo esos 224.
+
+*Hallazgo que infla febrero (pendiente, es residuo de 1.5):* Intereses y financiación da 958 en febrero con 18 filas.
+Las cuotas de los planes de refinanciación traen el número en la descripción con guion — `CUOTIFICACION 2-06`,
+`VISA PLAN V 2-06`, `Visa plan v 2-04` — y los lectores solo reconocen `C.02/06` (BBVA TC, `RE_CUOTA`) y `N de M` en la
+columna de cuota (Santander, `RE_CUOTA_SAN`). Quedan con `installment_current` NULL, `_set_billing_dates()` no las
+sella, y las cuotas 1 a 5 de cada plan caen todas en la fecha de la operación, 07/02 y 01/02. Además hay dos filas
+`CR.$ CUOTIFICACION` (200) y `CR.$ PLAN V` (206) contadas como gasto que parecen el crédito del refinanciamiento: falta
+confirmar con qué signo las lee el panel.
+
+*Banesco mayo explicado:* las 90 filas del import 252 son reales — comisiones de SMS y de mantenimiento atrasadas
+(`COM,SERV.MTO` de 2024 y 2025, ~0 USDT) cobradas al reactivar la cuenta el 05/05, más una entrada de 47 y una salida
+de 15,63. No hay duplicado.
+
+*Extracto de diciembre (verificado):* el PDF cargado fue `2026-01-22_00720175007003707199.pdf` — el nombre lleva la
+fecha de cierre, así que es el período 24/12–22/01, ya cargado —, no el de diciembre (`2025-12-23_…`). No entró ninguna
+fila y dejó 4 imports fantasma (331-334, `row_count` 39/0/14/13, `processed_count` 0), mismo caso que 327-330. El de
+diciembre ya no hace falta: enero se resolvió sin él y diciembre queda antes del piso. Los 3 PDFs de Banesco de
+`desconocidos/` coinciden por sha256 con los imports 252-254: son re-cargas de extractos ya importados.
+
+*Por qué el techo no se mide con lo que hay en BD:* `fin_statement_imports.period_from`/`period_to` guardan la primera y
+la última fecha de movimiento (`MIN`/`MAX(date)` de las filas del import) en todos los lectores salvo el resumen de
+tarjeta de Santander, que guarda el ciclo real. La BD no sabe hasta qué día cubre cada extracto: una cuenta de poco
+movimiento parece atrasada, un extracto en cero no existe y una re-descarga no se reconoce como el mismo período. El
+techo de 1.4 y los tres hallazgos de 1.6 tienen la misma raíz.
+
+*Cuotas con guion medidas (2026-09-17, `cuotas_guion.py`, solo lectura):* 24 filas en 7 planes de 4 tarjetas, todas en
+Intereses y financiación, sin `installment_current`. Cada cuota vino del resumen de su mes (import distinto), pero
+todas llevan la fecha del alta del plan. Aporte al gasto hoy contra el mes del resumen que la cobra, en USDT:
+2025-06 33→0, 2025-07 116→0, 2026-01 0→72, **02 522→148**, 03 0→148, 04 176→145, 05 0→145, 06 0→76, 07 30→78,
+08 0→65. El escombro de 2025-06/07 que se vio en el piso **es esto mismo**: cuotas 7 a 9 de planes de 2025 cobradas en
+enero-marzo. Las filas `CR.` se leen bien: entran como `income` y restan del gasto — `CR.$ CUOTIFICACION` (−200) y
+`CR.$ PLAN V` (−206) son el saldo que pasa al plan, y el plan lo cobra en cuotas con su interés. Faltan cuotas que no
+llegaron por ningún formato (6-06 de los dos planes de BBVA, 1-06 de `FINANC DE SALDO`): pendiente de revisar al
+arreglar el lector. No se toca sin decisión.
+
+*Opción A aplicada (2026-09-17) — los bordes que no dependen del período del extracto:*
+
+- `get_last_loaded_period()` abre el panel en el último mes con movimiento real **anterior** al mes en curso y excluye
+  las filas sintéticas. Antes abría en septiembre con gasto 0.
+- `get_monthly_evolution()` cuenta cada fila desde el `tracked_since` de su cuenta (primer consumidor de la columna) y
+  la ventana son N meses calendario enteros: antes arrancaba en `CURDATE() - N meses`, así que el primer mes entraba
+  cortado a mitad. Devuelve `en_curso` para el mes abierto.
+- `_EvolucionChart` pinta el mes en curso rayado en gris con la leyenda "en curso" y no le pone la franja roja de
+  gasto mayor que ingreso: con el mes abierto esa comparación no dice nada.
+
+Lo que **no** resuelve A: agosto sigue viéndose como mes normal aunque le faltan los extractos del 20 y el 27. Marcar
+el mes anterior como incompleto requiere guardar el período real de cada extracto (opción B, primer paso de 1.6).
 
 ### Orden de trabajo (2026-09-13 — reemplazada por el plan consolidado del 2026-09-15)
 
