@@ -404,13 +404,41 @@ septiembre, todavía sin cargar. En BBVA quedan dos cosas abiertas:
 - **Consecuencia de contar la cuota en el mes del cierre:** BBVA cerró dos veces en julio y ninguna en junio. Junio
   queda sin cuotas de BBVA y julio carga dos resúmenes por tarjeta. No es un hueco de carga.
 
-*El proxy sí cruza de mes en Santander.* Los imports 290, 305 y 315 son una segunda carga de extractos que ya estaban
-(la primera: 249, 111 y 244). En esa segunda carga solo entraron las filas nuevas, de 1 a 7 por sección, así que el
-último movimiento del import cae en el mes anterior al del extracto. Así, sus 5 cuotas cuentan un mes antes: 305 en
-febrero y no en marzo, 290 en mayo y no en junio, 315 en junio y no en julio. En Santander el cierre de la tarjeta es
-la fecha del nombre del archivo, que coincide con el último movimiento del PDF entero. Los dos ciclos leídos lo
-confirman: 23/07 y 20/08. El riesgo no es solo de las recargas: `SantanderAr` sella con el último movimiento de la
-sección, y a una tarjeta con poco uso le puede pasar lo mismo en una primera carga.
+*El proxy sí cruza de mes en Santander.* Los imports 290, 305 y 315 sellaron 5 cuotas un mes antes del resumen que las
+cobra: 305 en febrero y no en marzo, 290 en mayo y no en junio, 315 en junio y no en julio. En Santander el cierre de la
+tarjeta es la fecha del nombre del archivo, que coincide con el último movimiento del PDF entero. Los dos ciclos leídos
+lo confirman: 23/07 y 20/08. El riesgo no es solo de las recargas: `SantanderAr` sella con el último movimiento de la
+**sección** (`_set_billing_dates(cursor, import_id)` sin `closing`, `Class_Finance.py`), y a una tarjeta con poco uso le
+puede pasar lo mismo en una primera carga.
+
+*Corregido y verificado el 2026-09-18.* `billing_date` de esas 5 cuotas pasó a `MAX(date)` de **todos** los imports que
+comparten el `file_hash` — el PDF entero, no la sección. La dedup de Santander es por `(file_hash, section)`, así que
+las 5 secciones de un mismo PDF son 5 imports con el mismo hash.
+
+- **El proxy quedó validado antes de escribir:** el `MAX(date)` del PDF entero coincide **exacto** con la fecha del
+  nombre del archivo en los tres casos — 25/06, 19/03 y 23/07. Es lo que habilitó el UPDATE.
+- **Corrección de lo que decía esta entrada:** no son "una segunda carga de los extractos 249, 111 y 244". Los tres son
+  resúmenes distintos de la misma tarjeta (`2026-06-25_`, `2026-03-19_`, `2026-07-23_`), y 96, 111, 234, 239, 244, 249,
+  285 y 310 son otros resúmenes, no su primera carga. Lo que sí es cierto es el mecanismo: la sección `santander_visa`
+  de esos PDFs entró con **3 filas** cada una porque el resto ya estaba cargado (`_is_near_duplicate`), y con tan pocas
+  filas el último movimiento de la sección queda semanas antes del cierre.
+- **Síntoma que lo delata, y que sirve de test:** dos cuotas del mismo plan cobrando el mismo mes y un hueco al mes
+  siguiente. Los cuatro planes afectados quedaron con una cuota por mes y en orden — Look shopping (6 cuotas) 03, 04,
+  05, 06, 07; Merpago (3) 02, 03, 04; Simplicity232 (3) 06, 07, 08; Simplicity290 001304 (3) 05, 06, 07.
+- **No había gasto duplicado.** Cada cuota aparece una sola vez en su plan, y el barrido de la tarjeta entera por
+  `(account_id, date, amount, currency, raw_description, installment_current, installment_total)` dio vacío.
+- **Un chequeo de duplicados sobre `fin_transactions` tiene que incluir `installment_current`.** La clave de `uq_tx`
+  —`(account_id, date, amount, raw_description)`— no distingue un duplicado real de otra cuota del mismo plan: las 6
+  cuotas de Look shopping son 28.183,33 del 13/02 con la misma descripción y el mismo comprobante. El primer chequeo
+  se escribió sin la cuota y dio 5 falsos positivos.
+- **Impacto medido en el gasto por mes (ARS):** febrero −191.088, marzo +191.088, mayo −50.016, junio +7.658,
+  julio +42.358. A tasa ~1.500 son −127, +127, −33, +5 y +28 USD: solo febrero y marzo se notan en el gráfico.
+- **Abierto (a):** falta la cuota **1/6** de Look shopping adrogu (comprobante 005844, ~28.183 ARS). La serie arranca
+  en 2/6 y el resumen que la cobraría —el de febrero, import 96, archivo `2026-02-19`— sí está cargado.
+- **Abierto (b):** el proxy sigue corrido en otros imports de la tarjeta, pero **sin cruzar de mes**, así que quedaron
+  fuera del UPDATE. Ejemplo: la cuota 3/6 de Look shopping (import 310, archivo `2026-04-23`) cobra el 05/04, dieciocho
+  días antes del cierre. Se arreglan solas si `SantanderAr` pasa a sellar con el último movimiento del PDF entero —
+  propuesta todavía sin aplicar.
 
 ### Orden de trabajo (2026-09-13 — reemplazada por el plan consolidado del 2026-09-15)
 
