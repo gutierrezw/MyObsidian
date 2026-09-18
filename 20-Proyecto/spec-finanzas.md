@@ -223,9 +223,12 @@ Los KPIs agrupan por `_SQL_FECHA = "COALESCE(t.billing_date, t.date)"` — `get_
 mide cuándo se cargó movimiento real, no cuándo se cobra.
 
 *Quién sella.* `_set_billing_dates()` (`Class_Finance.py`) marca las cuotas del import al cerrarlo. Lo llaman
-`BbvaArTarjeta.load()` en sus dos ramas —la normal y la del resumen ya importado— y `SantanderAr.load()`: Santander
-trae los consumos de tarjeta dentro del extracto de cuenta, con `import_id` distinto del resumen que aporta el ciclo,
-así que el ciclo no le sirve como fuente. `CitibankUs` no lo llama, no tiene cuotas.
+`BbvaArTarjeta.load()` en sus dos ramas —la normal y la del resumen ya importado—, `SantanderAr.load()` una vez al
+final sobre todos los imports del PDF, y `SantanderArTarjetaResumen.load()` al grabar el ciclo, que re-sella lo ya
+cargado de esa tarjeta. Santander trae los consumos de tarjeta dentro del extracto de cuenta, con `import_id` distinto
+del resumen que aporta el ciclo, así que el ciclo no le sirve como fuente en el momento de la carga. `CitibankUs` no
+lo llama, no tiene cuotas. **Los dos bancos entran por caminos distintos a propósito:** BBVA pasa `closing` explícito
+—lo imprime en el resumen— y Santander no, así que cae a la rama que lo deriva. Detalle en el registro de 1.5.
 
 *El proxy está medido, no supuesto.* `fin_card_cycles.closing_date` cubre solo 6 de las 55 filas —los ciclos se
 empezaron a leer con los resúmenes de julio/agosto 2026 y las cuotas arrancan en noviembre 2025—. El resto sale de
@@ -407,9 +410,9 @@ septiembre, todavía sin cargar. En BBVA quedan dos cosas abiertas:
 *El proxy sí cruza de mes en Santander.* Los imports 290, 305 y 315 sellaron 5 cuotas un mes antes del resumen que las
 cobra: 305 en febrero y no en marzo, 290 en mayo y no en junio, 315 en junio y no en julio. En Santander el cierre de la
 tarjeta es la fecha del nombre del archivo, que coincide con el último movimiento del PDF entero. Los dos ciclos leídos
-lo confirman: 23/07 y 20/08. El riesgo no es solo de las recargas: `SantanderAr` sella con el último movimiento de la
+lo confirman: 23/07 y 20/08. El riesgo no es solo de las recargas: `SantanderAr` sellaba con el último movimiento de la
 **sección** (`_set_billing_dates(cursor, import_id)` sin `closing`, `Class_Finance.py`), y a una tarjeta con poco uso le
-puede pasar lo mismo en una primera carga.
+podía pasar lo mismo en una primera carga. Así era hasta el fix del 2026-09-18, más abajo en este mismo paso.
 
 *Corregido y verificado el 2026-09-18.* `billing_date` de esas 5 cuotas pasó a `MAX(date)` de **todos** los imports que
 comparten el `file_hash` — el PDF entero, no la sección. La dedup de Santander es por `(file_hash, section)`, así que
@@ -435,10 +438,54 @@ las 5 secciones de un mismo PDF son 5 imports con el mismo hash.
   julio +42.358. A tasa ~1.500 son −127, +127, −33, +5 y +28 USD: solo febrero y marzo se notan en el gráfico.
 - **Abierto (a):** falta la cuota **1/6** de Look shopping adrogu (comprobante 005844, ~28.183 ARS). La serie arranca
   en 2/6 y el resumen que la cobraría —el de febrero, import 96, archivo `2026-02-19`— sí está cargado.
-- **Abierto (b):** el proxy sigue corrido en otros imports de la tarjeta, pero **sin cruzar de mes**, así que quedaron
-  fuera del UPDATE. Ejemplo: la cuota 3/6 de Look shopping (import 310, archivo `2026-04-23`) cobra el 05/04, dieciocho
-  días antes del cierre. Se arreglan solas si `SantanderAr` pasa a sellar con el último movimiento del PDF entero —
-  propuesta todavía sin aplicar.
+- **Abierto (b) — CERRADO el 2026-09-18 por el fix de código de abajo.** El proxy seguía corrido en otros imports de la
+  tarjeta, pero **sin cruzar de mes**, así que quedaron fuera del UPDATE. Ejemplo: la cuota 3/6 de Look shopping
+  (import 310, archivo `2026-04-23`) cobraba el 05/04, dieciocho días antes del cierre.
+
+*El fix de código, 2026-09-18.* Los tres UPDATE manuales de este paso eran parche: `SantanderAr` seguía sellando con
+el último movimiento de la **sección**, así que el próximo resumen volvía a ensuciar el dato
+(ver `10-Memoria/feedback_saneamiento_termina_en_codigo.md`). Ahora la rama `closing is None` de `_set_billing_dates()`
+hace lo que antes se hacía a mano, en tres piezas:
+
+1. **Deriva el cierre del PDF entero, no de la sección** — `MAX(date)` de todos los imports que comparten el
+   `file_hash`, y si hay un cierre real de la cuenta en `fin_card_cycles` dentro de `CIERRE_MAX_DIAS` lo prefiere.
+2. **`SantanderAr.load()` sella fuera del bucle de secciones**, sobre todos los imports del `file_hash`. Antes el
+   sellado vivía dentro del bucle, y la rama de sección ya importada hace `continue` sin sellar — justamente el caso
+   de las secciones de 3 filas que originaron el problema.
+3. **`SantanderArTarjetaResumen.load()` re-sella la tarjeta al grabar el ciclo.** El resumen de tarjeta (otro PDF,
+   otro `file_hash`, misma `account_ref`) llega después del extracto de cuenta; ahora lo ya cargado con la
+   aproximación se corrige solo, sin volver a soltar el PDF — que además cambiaría de `file_hash` al re-descargarlo.
+
+*De dónde sale `CIERRE_MAX_DIAS = 10`.* La BD tiene varios cierres por tarjeta y hay que elegir cuál corresponde a
+este resumen. Medido sobre los 36 resúmenes con cuotas: cuando el cierre es el propio está a **0, 1, 1, 2, 5 o 5
+días** del último movimiento del PDF, y el valor siguiente salta a **28** — el cierre del mes próximo. Nada en el
+medio, así que el corte en 10 separa los dos grupos sin ambigüedad. Resuelve el caso 249-contra-315, que rompía una
+versión anterior de la regla: el 249 queda a 28 días y cae al último movimiento (25/06, junio), el 315 toma el cierre
+real (23/07, julio). Cada uno en su mes.
+
+*BBVA no entra, y es deliberado.* `BbvaArTarjeta` lee el cierre impreso en su propio resumen y lo pasa explícito, así
+que nunca llega a la rama modificada. La asimetría no es descuido: es que los dos bancos dan datos distintos y el de
+BBVA es mejor. Verificado por las malas — aplicado a todos, el import 182 se movería del 02/07 al 26/06, hacia atrás
+y a un mes que el homebanking desmiente.
+
+*Re-sellado de lo ya cargado, ejecutado por el usuario el 2026-09-18* con un script que llama al mismo
+`_set_billing_dates()` del lector, así que lo que aplicó es exactamente lo que hará el código de acá en adelante.
+Sobre 36 resúmenes con cuotas: **20 re-sellados** (Santander), **16 intactos** (BBVA, cierre propio), **11
+cambiaron**, corrección máxima **18 días** (imports 300 y 310) y **ninguno cruzó de mes** — la serie mensual de gasto
+ya era correcta y lo que se gana es precisión de día para el comprometido del mes próximo. El script abortaba con
+rollback si no reproducía las 7 correcciones manuales de este paso (imports 290, 305, 315, 182, 183, 335, 336); las
+reprodujo todas.
+
+Los 11 cambios, con el origen del cierre: el límite encontró el cierre real del banco en los imports 239, 240 y 244
+(a 1 día del último movimiento) y los demás cayeron al último movimiento del PDF, que es lo que corresponde cuando el
+resumen de tarjeta de ese mes no está cargado. Ningún caso quedó en la zona gris.
+
+*Primera corrida del verificador: falso positivo propio, vale como advertencia.* Decidía si BBVA tenía cierre propio
+buscándolo en `fin_card_cycles`, y los resúmenes de BBVA de enero a julio no tienen ciclo grabado (los ciclos se
+empezaron a leer en agosto). Con eso mandó 182 y 183 al fallback y el guardarraíl abortó, correctamente. El defecto
+era del script, no del fix: **el cierre de BBVA vive en el PDF y no hay forma de recuperarlo desde la BD**, así que
+cualquier verificación futura tiene que excluir las secciones cuyo lector pasa `closing` explícito, no intentar
+reconstruirlo.
 
 ### Orden de trabajo (2026-09-13 — reemplazada por el plan consolidado del 2026-09-15)
 
