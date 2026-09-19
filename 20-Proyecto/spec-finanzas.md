@@ -73,13 +73,14 @@ al cerrar la Fase 1.
 
 | # | Paso | Cierra cuando |
 |---|------|---------------|
-| 2.0 | **Bug: la aplicación hacia atrás no tocaba las filas sin clasificar** — `save_rule()` las seleccionaba con `classified_by IS NULL` y después las descartaba con `AND classified_by != 'manual'` (`NULL != 'manual'` es NULL, no TRUE). **Código corregido el 2026-09-18** (`COALESCE(classified_by, '') <> 'manual'`); falta la pasada única sobre el backlog que el bug dejó sin clasificar | guardar una regla mueve las N filas que el preview prometió **y** el histórico acumulado quedó clasificado |
-| 2.1 | Popup de categoría: clave corta —hoy el patrón por defecto es la descripción completa y no vuelve a coincidir el mes siguiente—, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13) | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
+| 2.0 | **Bug: la aplicación hacia atrás no tocaba las filas sin clasificar** — `save_rule()` las seleccionaba con `classified_by IS NULL` y después las descartaba con `AND classified_by != 'manual'` (`NULL != 'manual'` es NULL, no TRUE). **Código corregido el 2026-09-18** (predicado único `_SQL_RECLASIFICABLE`, no alcanzaba con el `COALESCE`); falta la pasada única sobre el backlog que el bug dejó sin clasificar — eran 21 filas; las dos de junio del caso testigo se resolvieron el 2026-09-19 al volver a guardar la regla, **quedan 19** | guardar una regla mueve las N filas que el preview prometió **y** el histórico acumulado quedó clasificado |
+| 2.1 | Popup de categoría: clave corta —hoy el patrón por defecto es la descripción completa y no vuelve a coincidir el mes siguiente—, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13). **Parcial el 2026-09-19:** el combo de categoría ya es `readonly` y sin foco (cambiaba de categoría con la rueda del mouse, causa D); falta el default del patrón. El campo del patrón **queda editable** — sin eso hace falta una regla por medio de pago | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
 | 2.2 | Pantalla "Revisión de categorías" por destinatario + clic visible en `_CategoryBar` (mejora 3) | reasignar un grupo crea la regla y la aplica |
-| 2.3 | Reglas: corregir las que tienen raya o sufijo de origen, desactivar las muertas, genéricas para planes de tarjeta, que gane la más específica (#269) | menos de 20 reglas activas sin aciertos |
+| 2.3 | Reglas: corregir las que tienen raya o sufijo de origen, desactivar las muertas, genéricas para planes de tarjeta, que gane la más específica (#269). **El criterio no puede ser `hit_count = 0`** — el contador mide coincidencias, no clasificaciones: sube con cada reimportación aunque no escriba nada, y el retro escribe sin subirlo (medido 2026-09-18, regla 490). Se detecta por el patrón: número de tarjeta, comprobante o fecha adentro | ninguna regla activa con la línea completa del resumen como patrón |
 | 2.4 | Imports sin filas: revisar y borrar con autorización | 0 imports vacíos sin motivo |
 | 2.5 | Comercios repartidos en más de una categoría: listado de destinatarios con 2+ categorías y cuántas filas en cada una, con reasignación del grupo entero. Caso testigo "panadería porteña" | ningún comercio recurrente queda partido sin que sea a propósito |
-| 2.6 | Al recategorizar, mostrar lo que ya hay: categorías que ese comercio tuvo, filas en cada una y si ya existe una regla apuntándole | el popup deja de decidir a ciegas sobre una sola fila |
+| 2.6 | Al recategorizar, mostrar lo que ya hay: categorías que ese comercio tuvo, filas en cada una y si ya existe una regla apuntándole. **Hecho el 2026-09-19** salvo la regla: el popup muestra el desglose por categoría y la lista completa de las filas que coinciden, con fecha, monto y categoría actual, y distingue las que puede mover de las que clasificó una persona. Falta mostrar **qué regla gana** el movimiento y poder editarla desde ahí | el popup deja de decidir a ciegas sobre una sola fila |
+| 2.7 | **Deshacer el retro**: guardar categoría y `classified_by` previos antes de aplicar una regla hacia atrás. Abierto el 2026-09-19 en el primer uso real — tildar "incluir también las que clasifiqué a mano" pisa el `manual` y no hay vuelta atrás desde la pantalla | se puede revertir la última aplicación de una regla sin SQL |
 
 **Fase 3 — Tablero "cómo voy"** (objetivos 5 y 6)
 
@@ -794,15 +795,22 @@ La que produce el caso testigo es la B; la A es un bug aparte que se encontró b
 
 **Lo que se midió primero** (1.539 filas de `fin_transactions`): `rule` 1.258, **`manual` 214** — el trabajo a mano,
 inmune a toda regla —, `classified_by` NULL **con** categoría 37, NULL **sin** categoría solo **21** (205 USD),
-`synthetic` 9. Con 21 filas sin clasificar en todo el histórico, la hipótesis "las filas nuevas llegan sin
-categoría" queda descartada: **llegan con una categoría puesta por una regla**, y el usuario la corrige.
+`synthetic` 9.
+
+*Corregido el 2026-09-18, mismo día:* de esas 21 filas se concluyó acá que "las filas nuevas llegan con una categoría
+puesta por una regla y el usuario la corrige". **Es falso**, y lo desmintió el propio caso testigo (ver Causa B): las
+filas del comercio llegan **sin** categoría y el trabajo a mano es ponerla, no corregirla. Las 21 no son un backlog
+residual: son la punta visible de lo que el retro roto dejó sin tocar. Se deja anotado porque el número —21 sobre
+1.539— invita a la conclusión equivocada.
 
 **Causa A — CORREGIDA el 2026-09-18 — hacia atrás: el UPDATE descartaba justo las filas que venía a arreglar.**
 Pesa menos de lo que parecía (21 filas, 205 USD), pero el arreglo destapó algo peor: al corregir solo el `NULL`,
 el retro quedaba habilitado a pisar las **37 filas con categoría y `classified_by` NULL** — categorías puestas por
 SQL durante el saneamiento, decisiones tan deliberadas como las manuales. De esas 37, **26 coincidían con alguna
-regla activa**: 4.156 USD expuestos (6 filas en *Pago tarjeta crédito*, 2 en *Préstamo recibido*, 6 en
-*Inversiones*) contra 205 USD de backlog legítimo. Así que el predicado correcto no es "no pisar lo manual" sino
+regla activa**: **4.361 USD** expuestos (6 filas en *Pago tarjeta crédito* = 1.038 USD, 2 en *Préstamo recibido* =
+1.894 USD, 6 en *Inversiones* = 785 USD, y el resto repartido) contra 205 USD de backlog legítimo. *El valor 4.156
+que figuró acá hasta el 2026-09-18 estaba mal: era la suma menos los 205 del backlog, restados por error.* Así que
+el predicado correcto no es "no pisar lo manual" sino
 **"no pisar nada que ya tenga categoría"**, y vive una sola vez en `_SQL_RECLASIFICABLE`, usado por el SELECT de
 candidatos, por el UPDATE y por el preview. Que fueran dos predicados distintos **era** el bug.
 
@@ -815,26 +823,47 @@ actualizan. Solo se mueven las que ya tenían `classified_by = 'rule'`. El segun
 el mismo `SELECT` y **no** el segundo filtro) promete *"coinciden N transacciones"* y se aplican muchas menos, o
 ninguna. Es un bug de una línea, no un rediseño.
 
-**Causa B — CONFIRMADA CON DATOS, es la que produce el caso testigo — hacia adelante: el patrón por defecto es la
-descripción completa.** El comercio no se llama "panadería" en la BD (`LIKE '%PANADER%'` no devuelve nada): es
-**"La portena"**. Sus reglas, las tres creadas por el usuario y las tres apuntando a *Restaurantes* con
-prioridad 50:
+**Causa B — CONFIRMADA CON FECHAS — hacia adelante: el patrón por defecto es la descripción completa.** El comercio
+no se llama "panadería" en la BD (`LIKE '%PANADER%'` no devuelve nada): es **"La portena"**. Sus reglas, las tres
+creadas por el usuario y las tres apuntando a *Restaurantes* con prioridad 50:
 
-| id | patrón | tipo | aciertos | último acierto |
-|---|---|---|---|---|
-| 317 | `Compra con tarjeta de debito — La portena - tarj nro. 2861` | contains | **0** | nunca |
-| 530 | `Compra con tarjeta de debito — La portena - tarj nro. 2861` | exact | **0** | nunca |
-| 490 | `La portena` | contains | **14** | 2026-09-16 |
+| id | patrón | tipo | creada | aciertos | último acierto |
+|---|---|---|---|---|---|
+| 317 | `Compra con tarjeta de debito — La portena - tarj nro. 2861` | contains | **2026-04-11** | **0** | nunca |
+| 490 | `La portena` | contains | **2026-09-13** | 14 | 2026-09-16 |
+| 530 | `Compra con tarjeta de debito — La portena - tarj nro. 2861` | exact | **2026-09-17** | **0** | nunca |
 
-El bucle completo, y no hay ninguna pieza que lo corte: la regla **490 funciona** y manda el movimiento a
-*Restaurantes*; el usuario lo corrige a mano a la categoría que corresponde y esa fila queda `manual`; al guardar,
-el popup propone como patrón **la línea entera del resumen** —con el número de tarjeta adentro— y crea la 317 y la
-530, que no coinciden con nada nunca (aciertos 0 y 0); la 490 **sigue activa y sigue ganando**, así que el mes que
-viene el movimiento vuelve a entrar como *Restaurantes*. Dos reglas nuevas por corrección, ninguna útil, y la que
-causa el problema intacta.
+*Reversión anotada:* la primera versión de esta sección describía el bucle como "la 490 clasifica el movimiento a
+*Restaurantes*, el usuario lo corrige a otra categoría y crea reglas inútiles". **No es eso lo que pasa.** Las 6 filas
+del comercio están todas en *Restaurantes* o sin categoría — ninguna en otra categoría, así que no hay criterio
+corregido. El usuario no corrige una categoría equivocada: **pone a mano la que la regla debería haber puesto**.
+
+El bucle real, con las fechas de las tres reglas y las 6 filas del comercio:
+
+| fecha | hecho |
+|---|---|
+| 2026-04-11 | se crea la 317 con la línea entera del resumen, número de tarjeta adentro → **0 aciertos en 5 meses** |
+| may, jul, ago | 4 filas entran sin categoría y se clasifican a mano → *Restaurantes* |
+| jun | 2 filas entran sin categoría y **quedan así** (ids 2327 y 2330) |
+| 2026-09-13 | se crea la 490 con el patrón corto `La portena` → coincide, pero junio sigue sin categoría (**Causa A**) |
+| 2026-09-17 01:57 | se crea la 530: otra vez la línea entera, ahora `exact` → **0 aciertos** |
+
+Eso es el *"la reclasifico en casi todos los meses"* medido: **cinco meses con una regla activa que nunca coincidió con
+nada.** Y la 530, creada de madrugada cuatro días después de la 490, es el intento de arreglar junio con las dos causas
+pegando juntas — el popup volvió a proponer la línea completa, y aun con el patrón corto el retro no habría movido esas
+filas.
+
+**`hit_count` cuenta coincidencias, no clasificaciones** (medido el 2026-09-18, cambia el criterio del paso 2.3). La 490
+tiene 14 aciertos en 3 días sobre un comercio con **6 filas** en la BD: son reimportaciones del mismo resumen —
+`apply_rules()` suma el contador **antes** del `INSERT IGNORE`, así que la regla acertó 14 veces sin escribir una sola
+categoría (las 6 filas siguen en `manual` o NULL). Al revés también: el retro de `save_rule()` evalúa el patrón en
+Python y **no** pasa por `apply_rules()`, así que cambia filas sin sumar nada. Consecuencia: **no se pueden borrar reglas
+solo por `hit_count = 0`** — una regla con 0 aciertos puede haber clasificado por retro. Para la 317 y la 530 da igual
+(el patrón con número de tarjeta no sirve en ningún caso), pero el paso 2.3 necesita otro criterio.
 
 De ahí que el pedido *"que se muestren las categorías que ya tiene"* sea más exacto de lo que parecía: lo que falta
-no es solo ver la categoría, es **ver la regla que se la puso**, para corregir la 490 en lugar de crear la 531.
+no es solo ver la categoría, es **ver si hay una regla y cuál gana** — acá habría mostrado que ya existían dos reglas
+muertas y una viva, y que no hacía falta crear una tercera.
 
 `_CategoryEditPopup` arranca con
 `self._var_pattern = StringVar(value=raw_desc.strip())` y `match_type = "contains"`. Si la descripción del comercio
@@ -848,20 +877,108 @@ línea del resumen, sino la parte del nombre del comercio que se repite.
 `classified_by='manual'` sobre **una sola fila**, y desde ese momento ninguna regla la vuelve a evaluar. Esto es
 deliberado y debe quedar así —la decisión del usuario no se pisa con una automatización—, pero tiene un costo que
 nadie había anotado: si más adelante cambia de criterio, las filas viejas que corrigió a mano conservan la
-categoría vieja. **Ese es el origen del primer pedido**: el mismo comercio termina repartido en dos o tres
-categorías, y ninguna pantalla lo muestra hoy. La salida no es dejar que las reglas pisen lo manual, es poder
-**ver** el reparto y reasignar el grupo entero a propósito (pasos 2.2 y 2.5).
+categoría vieja — el mismo comercio queda repartido en dos o tres categorías y ninguna pantalla lo muestra hoy.
+La salida no es dejar que las reglas pisen lo manual, es poder **ver** el reparto y reasignar el grupo entero a
+propósito (pasos 2.2 y 2.5).
+
+*Atribución corregida el 2026-09-18:* acá se dijo que esto era "el origen del primer pedido". **No está medido.** El
+caso testigo no está repartido —las 6 filas de "La portena" son todas *Restaurantes* o nada—, así que el pedido de ver
+los movimientos que caen en más de una categoría sigue siendo válido pero **todavía no tiene un caso que lo
+justifique**. Lo mide el paso 2.5 cuando se implemente: comercios con filas en más de una categoría, contadas.
+
+**Causa D — CORREGIDA el 2026-09-19 — el popup dejaba cambiar la categoría sin que el usuario lo viera.** El
+`Combobox` de categoría se creaba con `state="normal"` —texto libre— y con `focus_set()` puesto encima al abrir la
+ventana, así que una flecha del teclado o la rueda del mouse seleccionaba otra categoría sin ninguna acción
+deliberada. Peor cuando la fila **no tenía** categoría: el `set()` inicial solo corre si la categoría actual está en
+la lista, así que el combo quedaba **vacío** —exactamente el caso en que se usa el popup— y el primer scroll lo
+llenaba con cualquier valor. Pasó de verdad: al ir a arreglar las dos filas de junio de "La portena", una quedó
+guardada en *Otros gastos*. Hoy el combo es `readonly` y el foco arranca en el campo **Patrón**, que es el que se
+edita siempre. El patrón sigue siendo texto libre a propósito: *"no importa el medio que use para pagar en La
+porteña, siempre debe ir a Restaurantes"* — si el patrón no se pudiera acortar a mano, haría falta una regla por
+medio de pago y por número de tarjeta.
 
 **Lo que hoy no existe.** El popup muestra la categoría *de esa fila* (`txn_row.get("category")`) y nada más: no
 muestra qué otras categorías tuvo ese comercio, ni cuántas filas hay en cada una, ni si existe ya una regla
 apuntándole. Sin eso el usuario decide a ciegas y cada corrección es una fila, no un criterio.
 
-**Qué cierra esto, en orden.** (1) El paso 2.1 con clave corta — sin eso cada corrección sigue dejando basura;
-(2) el popup mostrando las reglas que ya matchean el movimiento, con la opción de **editar o desactivar** la que
-gana (paso 2.6); (3) limpieza de las reglas con 0 aciertos (paso 2.3 — las 317 y 530 son el ejemplo, y hay que ver
-cuántas más hay); (4) la pasada única sobre las 21 filas sin clasificar (paso 2.0). Lo que **no** hay que hacer es
-dejar que las reglas pisen lo manual: las 214 filas a mano son decisiones, y el problema es que haya que tomarlas
-214 veces, no que se respeten.
+**Qué cierra esto, en orden.** (1) La pasada única sobre las 21 filas sin clasificar (paso 2.0) — el fix del retro
+evita que se vuelva a ensuciar pero no limpia lo acumulado, y ahí están las dos filas de junio del caso testigo;
+(2) el paso 2.1 con clave corta — sin eso cada corrección sigue dejando basura; (3) el popup mostrando las reglas que
+ya matchean el movimiento, con la opción de **editar o desactivar** la que gana (paso 2.6); (4) limpieza de reglas
+muertas (paso 2.3), con un criterio que no sea `hit_count = 0` — las 317 y 530 se van por tener el número de tarjeta
+en el patrón, no por el contador. Lo que **no** hay que hacer es dejar que las reglas pisen lo manual: las 214 filas a
+mano son decisiones, y el problema es que haya que tomarlas 214 veces, no que se respeten.
+
+**Caso testigo cerrado y fix validado en vivo (2026-09-19).** El usuario reinició la app, desactivó las dos reglas de
+patrón largo (`is_active = 0`, no borradas: la traza de por qué existieron se conserva) y volvió a guardar la regla con
+la clave corta. Estado final del comercio: **las 6 filas en *Restaurantes***, y las dos de junio —2327 y 2330, tres
+meses sin categoría— ahora con `classified_by = 'rule'`. Es el retro corregido moviendo filas que antes seleccionaba y
+después descartaba. Queda **una sola regla activa**: `La portena` / contains / *Restaurantes*, que no depende del medio
+de pago ni del número de tarjeta.
+
+Ese mismo cierre **confirmó lo de `hit_count`**: la 490 clasificó las dos filas de junio y quedó igual, en 14 aciertos
+con `last_hit_at` el 2026-09-16. El retro escribe sin tocar el contador — ya no es una medición indirecta.
+
+*Reversión anotada el 2026-09-19, mismo día:* **el caso testigo no estaba cerrado y "las 6 filas" era un número
+falso — son 37.** El `SELECT` con el que se dio por cerrado buscaba el comercio en `COALESCE(raw_description,
+description)`, y en Santander el comercio no vive ahí: vive en `raw_description_detail`. La consulta de diagnóstico
+tenía el mismo defecto que el código que estaba diagnosticando, así que confirmó un cierre que no existía. Lo que sí
+queda en pie de ese párrafo: las dos reglas de patrón largo desactivadas, las filas de junio movidas por el retro y
+la confirmación de `hit_count`. Lo que se cae es el alcance. La causa real es la E.
+
+**Causa E — LA CAUSA RAÍZ, corregida el 2026-09-19 — el import y el retro leían textos distintos.** `apply_rules()`
+evalúa el patrón contra `(description + " " + detail).strip()`; el retro de `save_rule()` y el preview lo evaluaban
+contra `COALESCE(raw_description, description)`, **sin el detalle**. En las cuentas que parten el movimiento en dos
+columnas eso significa que el patrón del comercio no coincide nunca hacia atrás: la regla clasifica bien la fila que
+entra y no toca ninguna de las viejas. Es la explicación completa de *"lo reclasifico a mano todos los meses"*, y las
+causas A a D eran agravantes.
+
+Medido el 2026-09-19 sobre las 1.539 filas: **682 (44%) tienen detalle.** No está repartido parejo, y ahí está el
+daño:
+
+| cuenta | filas | con detalle | encabezados distintos | qué hay en el detalle |
+|---|---|---|---|---|
+| Santander CA/CC ARS | 460 | **374** | 31 | **el comercio** |
+| BBVA CA ARS | 286 | 224 | 101 | códigos numéricos (`100`, `104`, `246`) |
+| Tarjetas (BBVA, Santander, Amex, Visa) | 488 | 0 | 48–79 | — |
+| Banesco / BDV / Citibank | 196 | 0 | 3–85 | — |
+
+Santander CA/CC es la cuenta del día a día del usuario y es justo la peor: 374 filas donde el encabezado es el
+instrumento (`Compra con tarjeta de debito`, 108 filas, ratio de 14,8 filas por encabezado) y el negocio está del
+lado del detalle. BBVA es sueldo y tesorería, su detalle **no** trae contraparte —se verificó, son códigos— y sus
+101 encabezados son ~15 instrumentos contaminados con identificadores (`OPER.FONDO COMUN DE INVERSI <nro>CUT`,
+`DEBITO CUOTA 196-96-00091422`), que se resuelven con `startswith` y no necesitan código nuevo.
+
+La corrección es una constante, `_SQL_TEXTO_REGLA`, con el mismo `CONCAT` que arma el import, usada por el SELECT de
+candidatos y por el preview; y `_match_pattern()`, un estático único que evalúan los dos. Que el preview y el UPDATE
+tuvieran cada uno su copia del criterio es lo que hacía que la pantalla prometiera filas que después no se movían.
+
+**Propagación con alerta previa (2026-09-19).** Pedido textual: *"asegurar que si catalogo un gasto eso pueda
+replicarse en toda la Base de datos. me das la alerta de todo lo que cambiaria asi no voy a siegas"*, y después
+*"por que no lo pones en una lista -- asi lo puedo revisar antes de confirmar"*. `save_rule_count_retro()` devolvía
+un número y el label decía *"clasificará N transacciones sin categoría"* — mentía dos veces: contaba también las que
+ya tenían categoría puesta por otra regla, y no decía cuáles. En el caso testigo ocultaba 18 filas. Lo reemplaza
+`save_rule_preview()`, que devuelve el desglose por categoría más el detalle fila por fila, y el popup lo muestra
+como resumen + **lista completa con scroll** (fecha, monto, movimiento, categoría actual). La fecha y el monto van
+porque el usuario reconoce la compra por ahí, no por la línea del resumen: *"claro eso los busco trato de acordarme
+que compre"*. Dorado = la regla la mueve; gris = queda como está. Por encima de 10 filas el botón pide un segundo
+clic con el número a la vista.
+
+`incluir_manual` es la casilla que permite pisar también lo clasificado a mano, apagada por default y visible solo
+cuando hay algo que pisar. Existe porque la causa D dejó filas en categorías que nadie eligió. **Nunca toca
+`synthetic`.**
+
+**Medición del caso testigo, ahora con el texto completo:** `La portena` / contains coincide con **37 filas** — 18
+puestas por regla en *Otros gastos*, 16 manuales en *Restaurantes*, 2 manuales en *Supermercado*, 1 manual en *Otros
+gastos*. Eso es lo que el diagnóstico anterior no veía.
+
+**Defecto abierto, encontrado en el primer uso real.** El usuario guardó con la categoría que traía el combo
+—*Otros gastos*, la que había puesto la regla vieja— en lugar de *Restaurantes*: las 37 fueron a *Otros gastos* y las
+19 manuales pasaron a `classified_by = 'rule'`. La segunda pasada las corrigió a *Restaurantes*, pero **la marca de
+"esto lo decidí yo" no se puede recuperar**: las 2 filas de *Supermercado* quedaron indistinguibles del resto.
+Tildar `incluir_manual` es hoy una puerta de un solo sentido. Falta guardar la categoría y el `classified_by`
+previos antes del retro para poder deshacer. Mitigación puesta en el momento: el encabezado del preview dice **a qué
+categoría** se mueve (`MUEVE 37 fila(s) a Restaurantes`) y se actualiza al cambiar el combo.
 
 ------------------------------------------------------------------------
 
