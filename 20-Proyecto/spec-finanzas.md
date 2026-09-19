@@ -74,7 +74,7 @@ al cerrar la Fase 1.
 | # | Paso | Cierra cuando |
 |---|------|---------------|
 | 2.0 | **Bug: la aplicación hacia atrás no tocaba las filas sin clasificar** — `save_rule()` las seleccionaba con `classified_by IS NULL` y después las descartaba con `AND classified_by != 'manual'` (`NULL != 'manual'` es NULL, no TRUE). **Código corregido el 2026-09-18** (predicado único `_SQL_RECLASIFICABLE`, no alcanzaba con el `COALESCE`); falta la pasada única sobre el backlog que el bug dejó sin clasificar — eran 21 filas; las dos de junio del caso testigo se resolvieron el 2026-09-19 al volver a guardar la regla, **quedan 19** | guardar una regla mueve las N filas que el preview prometió **y** el histórico acumulado quedó clasificado |
-| 2.1 | Popup de categoría: clave corta —hoy el patrón por defecto es la descripción completa y no vuelve a coincidir el mes siguiente—, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13). **Parcial el 2026-09-19:** el combo de categoría ya es `readonly` y sin foco (cambiaba de categoría con la rueda del mouse, causa D); falta el default del patrón. El campo del patrón **queda editable** — sin eso hace falta una regla por medio de pago | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
+| 2.1 | Popup de categoría: clave corta —el patrón por defecto era la descripción completa y no volvía a coincidir el mes siguiente—, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13). **HECHO el 2026-09-19:** combo `readonly` y sin foco (cambiaba de categoría con la rueda del mouse, causa D), retro con el detalle (causa E) y el default del patrón por `_clave_corta()` — 13 de 13 líneas reales dieron clave usable. El campo del patrón **queda editable** — sin eso hace falta una regla por medio de pago | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
 | 2.2 | Pantalla "Revisión de categorías" por destinatario + clic visible en `_CategoryBar` (mejora 3) | reasignar un grupo crea la regla y la aplica |
 | 2.3 | Reglas: corregir las que tienen raya o sufijo de origen, desactivar las muertas, genéricas para planes de tarjeta, que gane la más específica (#269). **El criterio no puede ser `hit_count = 0`** — el contador mide coincidencias, no clasificaciones: sube con cada reimportación aunque no escriba nada, y el retro escribe sin subirlo (medido 2026-09-18, regla 490). Se detecta por el patrón: número de tarjeta, comprobante o fecha adentro | ninguna regla activa con la línea completa del resumen como patrón |
 | 2.4 | Imports sin filas: revisar y borrar con autorización | 0 imports vacíos sin motivo |
@@ -97,7 +97,7 @@ al cerrar la Fase 1.
 | 4.1 | Recurrentes y suscripciones: `is_recurring` por comercio presente en 3 o más meses; lista con costo mensual y anual. Candidatos de la foto: Adobe, Anthropic, Claro, Netuno, Metrogas, comisiones de cuenta | cada ítem revisado con el usuario: se queda o se corta |
 | 4.2 | Costos evitables: comisiones, intereses por descubierto, impuestos de tarjeta, Monthly Service Fee de Citi, intereses de planes; total anual | se conoce el total anual y qué cambio lo baja |
 | 4.3 | Presupuesto por categoría = promedio de los 3 últimos meses cerrados; alerta al 80% y al 100% durante el mes (ex E6) | primera alerta real |
-| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro | número y progreso visibles en el panel |
+| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro. **Parcial el 2026-09-19:** la vista `Flujo` muestra el promedio por categoría en 1M/3M/6M/1Y y el número al pie (678.111 en la ventana de 1 año). Falta el **progreso**: el saldo pendiente del préstamo no está en ninguna tabla `fin_*` y sin restarlo el avance sale inflado | número y progreso visibles en el panel |
 
 **Fase 5 — Mínimo esfuerzo** (objetivo 3; ex E4 y E6): IA para lo que las reglas no clasifican + cola
 `needs_review` de un clic, tasa de cambio diaria en `fin_exchange_rates`, captura por Gmail, `account` en las
@@ -111,6 +111,12 @@ optimistas. El piso se mide desde el primer extracto de cada cuenta, no se elige
 *Cambio de enfoque 2026-09-16:* el piso **no** sale del primer extracto de cada cuenta — un extracto en cero no deja
 rastro en BD, así que "primer extracto" confunde cuenta sin movimiento con extracto faltante. Queda declarado por
 cuenta en `fin_accounts.tracked_since` con default 2026-01. Motivo y medición en el registro de 1.4.
+
+*Aclaración 2026-09-19:* **"el punto de saldos" que pide el usuario es el paso 1.6**, no una vista nueva. Los parsers
+ya leen `SALDO ANTERIOR` / `SALDO ACTUAL` de cada extracto y los descartan, y `fin_accounts.balance` está **en 0 en
+todas las cuentas**. Por eso quedó afuera de la vista `Flujo` del 2026-09-19: mostrar saldos hoy sería mostrar ceros.
+La conciliación (saldo anterior + movimientos = saldo actual) es además el único chequeo que detecta filas faltantes
+sin comparar contra el PDF a mano.
 
 ### Fase 1 — registro de lo hecho
 
@@ -980,6 +986,38 @@ Tildar `incluir_manual` es hoy una puerta de un solo sentido. Falta guardar la c
 previos antes del retro para poder deshacer. Mitigación puesta en el momento: el encabezado del preview dice **a qué
 categoría** se mueve (`MUEVE 37 fila(s) a Restaurantes`) y se actualiza al cambiar el combo.
 
+**2.1 — el popup propone el comercio, no la línea del resumen** (2026-09-19, cierra el paso).
+
+El default era `raw_desc.strip()`: la línea entera, con número de tarjeta, comprobante, fecha, cuota o TNA adentro.
+La regla nacía muerta —ese texto no vuelve a aparecer igual el mes siguiente— y el mismo comercio había que
+reclasificarlo mes a mes. Lo propone ahora `_CategoryEditPopup._clave_corta()`, y el campo **sigue editable**: es la
+condición del paso 2.1, sin ella haría falta una regla por medio de pago.
+
+Cómo llega al comercio, en orden, y por qué cada paso:
+
+| Paso | Ejemplo | Motivo |
+|---|---|---|
+| Si hay separador `" — "`, se queda con el **detalle** | `Compra con tarjeta de debito — La portena 20 de julio` → `La portena` | el encabezado es el medio de pago; tomarlo obliga a una regla por instrumento (causa E) |
+| Corta en el primer `(` | `CUOTIFICACION 6-06 (TNA 79,00)` | lo que va entre paréntesis es el dato del mes, nunca el comercio |
+| Saca el prefijo de billetera | `MERPAGO*MIPM` y `Merpago/mipm 1234` → `MIPM` / `mipm` | el mismo comercio llega en dos formatos; sin el prefijo una sola regla cubre los dos |
+| Parte el texto en tramos separados por tokens variables y elige el tramo con **más letras** | `COMPRA 4517*1234 FARMACITY 15/08` → `FARMACITY` | **no el primero**: el comercio no siempre viene al principio, y quedarse con `COMPRA` crea justo el comodín de la regla 269 |
+| Tope de 3 tokens, y el tramo queda **contiguo** | | el patrón se evalúa como subcadena: unir tokens salteados daría una clave que no existe en ningún movimiento |
+| Si la clave queda con menos de 4 caracteres, cae a los primeros 30 del texto | `ASTERISCO 22` | mejor un patrón largo que uno que arrastre filas ajenas |
+
+Medido sobre 13 líneas reales de los extractos (Santander, BBVA, Visa, Amex): **13 de 13** dieron una clave usable.
+
+*Cambio de comportamiento a la vista:* `VISA PLAN V C.01/06 LOOK SHOPPING` propone `LOOK SHOPPING` —el comercio— y no
+`VISA PLAN V`. Es lo correcto: `VISA PLAN V` es el instrumento y ya lo cubre la regla genérica del plan de tarjeta
+(paso 2.3).
+
+**La regla comodín 269, que es el motivo de la elección "el tramo con más letras".** Patrón `Compra con tarjeta de
+debito` → *Otros gastos*, prioridad 100: el instrumento, no el comercio. Clasifica correctamente 0 movimientos y
+manda a *Otros gastos* todo lo que se paga con débito en Santander —la cuenta del día a día—, con la prioridad ganando
+a reglas más específicas. Es el patrón exacto que `_clave_corta()` habría propuesto con la versión anterior del
+algoritmo, que se quedaba con el primer tramo. Se baja de prioridad en vez de borrarla: sin ella las compras con
+débito sin regla propia quedan sin categoría, y eso las hace visibles en la pasada del paso 2.0. SQL pendiente de
+correr, junto con la desactivación de las reglas con la línea completa como patrón (paso 2.3).
+
 ------------------------------------------------------------------------
 
 ### Fase 3 — registro de lo hecho
@@ -1022,6 +1060,71 @@ inválida. No depende del período elegido —mira hacia adelante—, sí de los
 servicios, suscripciones). Son de naturaleza distinta: la cuota de tarjeta es un compromiso con fecha y monto
 exactos, el fijo es un promedio. Mezclarlos en un solo número borraría esa diferencia, y el número que hay que
 tener reservado para que el banco no cuotifique al 69–102% es el de las cuotas.
+
+------------------------------------------------------------------------
+
+### Fase 4 — registro de lo hecho
+
+**4.4 — la vista Flujo: el promedio por categoría y el número de libertad financiera** (2026-09-19).
+
+Pedido textual: *"estoy más interesado en ver cómo se ve el flujo de dinero en las categorías y cómo puedo calcular mi
+número para la libertad financiera, ver los promedios de ingresos, gastos e inversiones"*. Y la forma, que es una
+decisión de arquitectura, no de UI: *"lo quiero como opciones dentro de la app — es un mecanismo para las
+depuraciones"*. Esto fija una regla para lo que viene: **una consulta de diagnóstico que vale la pena mirar dos veces
+termina siendo una vista, no un SQL pegado en el editor.** Lo que no está en la app hay que volver a escribirlo cada
+vez y nadie lo revisa.
+
+**Cuatro ventanas: 1M, 3M, 6M, 1Y** (*"ok flujo 1m 3m 6m y 1y"*). Una sola no distingue el gasto que subió del gasto
+que pasó una vez; el mes contra el año es lo que muestra la deriva. Son suyas: **no dependen del selector Mes/Año**,
+sí de los chips de banco y cuenta.
+
+**El divisor de cada ventana es la cantidad de meses con movimiento, no los del calendario.** Con `tracked_since` en
+enero, dividir el año por 12 inventa meses baratos que no existieron — es el borde de atrás del paso 1.4 metido en un
+promedio. El encabezado de la columna lo declara (`1Y ÷8`), así que el usuario ve sobre cuántos meses se promedió sin
+tener que deducirlo. Medido el 2026-09-19: 1M÷1, 3M÷3, 6M÷6, **1Y÷8** — enero a agosto, exactamente el piso
+declarado.
+
+**El mes en curso no entra en ninguna ventana.** Está abierto: sus resúmenes todavía no llegaron y bajaría los cuatro
+promedios a la vez.
+
+**El signo.** En todo lo que no es `income`, positivo = sale plata, negativo = entra. Una fila `Inversiones` en −508
+es rescate neto del mes, no un error. Es la misma convención de `_SQL_NETO` que usan los KPIs.
+
+**El número** = (`fixed` + `variable`) × 12 ÷ 4%, o sea 300 veces el costo de vida mensual. `extraordinary` queda
+afuera del costo de vida y se promedia aparte: mudanza, mantenimiento, tecnología y viajes no son gasto de todos los
+meses, y meterlos adentro infla el objetivo con plata que no hay que rendir para siempre.
+
+Estado al 2026-09-19 (promedio mensual USD, cuentas todas):
+
+| | 1M | 3M | 6M | 1Y |
+|---|---|---|---|---|
+| Ingreso | 2.824 | 3.338 | 3.047 | 3.142 |
+| Gasto | 1.940 | 2.620 | 2.622 | 2.430 |
+| Ahorro | 883 | 718 | 425 | 712 |
+| Tasa de ahorro | 31,3% | 21,5% | 13,9% | **22,7%** |
+| Costo de vida (`fixed`+`variable`) | 1.940 | 2.540 | 2.454 | 2.260 |
+| Extraordinario | 0 | 81 | 167 | 169 |
+| **Número** | 582.127 | 761.941 | 736.162 | **678.111** |
+
+La ventana que hay que leer es 1Y: 6M queda alta por la mudanza (122/mes) y 1M es un solo mes. Las tres categorías
+que mandan el número son `Familia` (639), `Alquiler` (430) y `Cuotas de préstamo` (314) — 1.383 de los 2.260 del costo
+de vida, 61%.
+
+**Sirve de mecanismo de depuración sin agregar nada.** `Sin categoría` y las categorías sin `expense_class` aparecen
+como filas propias, y la fila **Gasto sin clase** se pinta en rojo cuando no es cero: mientras haya, el costo de vida
+y el número salen bajos. Hoy es 1 USD/mes (300 sobre 678.111, irrelevante, pero visible).
+
+**Lo que este paso no cubre: el progreso.** El plan pide *progreso = inversiones − deudas*. El patrimonio invertido lo
+da `get_totales_inversiones()`, pero el **saldo pendiente del préstamo de 9M ARS no está en ninguna tabla `fin_*`** —
+solo se ven las cuotas que ya se cobraron. Sin restarlo, el progreso queda inflado, y un porcentaje de avance
+demasiado optimista es peor que no mostrarlo. Queda abierto, junto con los años estimados por tasa de ahorro.
+
+**Dónde se ve.** Cuarta vista del panel de detalle (`Flujo`), junto a `Últimas transacciones`, `Cobertura` y
+`Comprometido`. Con la cuarta vista, el `pack_forget` de las demás pasó a `_pack_solo()`: repetirlo en cada `_show_*`
+es la forma de que alguna quede visible abajo de otra. El estado sigue siendo un solo `self._detail`
+(`txn` / `cover` / `commit` / `flow`). El consultón es `FinanceScreen.get_category_flow()`: **una** query agrupada por
+(grupo, clase, categoría, mes) y los cuatro promedios armados en Python — cuatro queries darían cuatro recorridos de
+la misma tabla para responder la misma pregunta.
 
 ------------------------------------------------------------------------
 
