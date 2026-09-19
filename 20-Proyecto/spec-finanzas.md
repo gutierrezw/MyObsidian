@@ -68,6 +68,7 @@ al cerrar la Fase 1.
 | 1.4 | Mes incompleto a la vista: el panel lo marca mientras alguna cuenta no tenga datos posteriores a su último día | agosto deja de parecer un mes barato |
 | 1.5 | Cuotas de tarjeta con la fecha del resumen que las cobra, no la de la compra (pendiente de E2) | **Hecho el 2026-09-16** — 43 de 55 filas en cuotas cambiaron de mes; las cuotas de un plan caen en meses distintos |
 | 1.6 | Saldo de fin de mes y conciliación: guardar `SALDO ANTERIOR` / `SALDO ACTUAL` de cada extracto y comprobar que saldo anterior + movimientos = saldo actual | cada extracto cierra o avisa que faltan filas |
+| 1.7 | **Inversiones: conciliar contra el extracto del vehículo y ver la rotación** (pedido 2026-09-19). Hoy un rescate de FCI que se lleva a IB o a cripto se netea contra el aporte y el grupo `investment` muestra ~0 o negativo: la plata se movió y no se ve. Dos partes: (a) que una rotación se lea como rotación —de dónde salió y a dónde entró—, no como desinversión; (b) cruzar el flujo bancario hacia inversión contra el patrimonio por vehículo de la tabla `inversion`, mes a mes | el aporte del mes cuadra con el extracto del vehículo, y se ve qué se movió de un vehículo a otro |
 
 **Fase 2 — Clasificación que se sostiene sola** (objetivo 2; resto de E2)
 
@@ -97,7 +98,7 @@ al cerrar la Fase 1.
 | 4.1 | Recurrentes y suscripciones: `is_recurring` por comercio presente en 3 o más meses; lista con costo mensual y anual. Candidatos de la foto: Adobe, Anthropic, Claro, Netuno, Metrogas, comisiones de cuenta | cada ítem revisado con el usuario: se queda o se corta |
 | 4.2 | Costos evitables: comisiones, intereses por descubierto, impuestos de tarjeta, Monthly Service Fee de Citi, intereses de planes; total anual | se conoce el total anual y qué cambio lo baja |
 | 4.3 | Presupuesto por categoría = promedio de los 3 últimos meses cerrados; alerta al 80% y al 100% durante el mes (ex E6) | primera alerta real |
-| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro. **Parcial el 2026-09-19:** la vista `Flujo` muestra el promedio por categoría en 1M/3M/6M/1Y y el número al pie (678.111 en la ventana de 1 año). Falta el **progreso**: el saldo pendiente del préstamo no está en ninguna tabla `fin_*` y sin restarlo el avance sale inflado | número y progreso visibles en el panel |
+| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro. **HECHO el 2026-09-19:** la vista `Flujo` muestra el promedio por categoría en 1M/3M/6M/1Y, el número al pie (678.111 en 1Y) y el bloque PROGRESO — neto 56.136 = 57.896 a mercado − 411 de margen − 1.349 de cuotas, **8,3% cubierto, 26,8 años** al ritmo de 712/mes con 5% real supuesto. El avance es un **TECHO declarado en pantalla**: el saldo del préstamo no está en ninguna tabla `fin_*` (lo desbloquea 1.6) | número y progreso visibles en el panel |
 
 **Fase 5 — Mínimo esfuerzo** (objetivo 3; ex E4 y E6): IA para lo que las reglas no clasifican + cola
 `needs_review` de un clic, tasa de cambio diaria en `fin_exchange_rates`, captura por Gmail, `account` en las
@@ -786,6 +787,47 @@ mira el detalle, así que un extracto superpuesto no duplica filas.
   no frena a la otra. Primera verificación: 0 filas nuevas en las dos ventanas — todo estaba cargado por PDF.
   **Desde acá el PDF de C2C ya no hace falta.**
 
+**1.7 — ABIERTO, anotado el 2026-09-19: la rotación entre vehículos no se ve, y nadie concilia contra el extracto
+del vehículo.**
+
+Pedido textual, después de mirar la vista `Flujo`: *"ahora sobre las inversiones. A ver, debemos conciliar con los
+extractos mensuales. Hay dinero que reinvierto, saco de FCI y puedo llevar a IB o cripto, eso no se está viendo"*.
+
+**Qué muestra hoy la vista y por qué no alcanza.** El grupo `investment` tiene tres categorías —`Inversiones`,
+`Aportes a IB`, `Retención USDT`— y la vista muestra el **neto** de cada una. Un rescate de FCI entra como `income`
+(negativo con la convención de signo) y el aporte a IB o a cripto sale como `expense` (positivo): los dos tramos se
+cancelan y el mes queda en ~0. Es exactamente lo que se ve en la foto del 2026-09-19: `Inversiones` **−508** en 1M y
+**−216** en 3M contra **+635** en 1Y. Leído sin contexto parece que se desinvirtió; probablemente —**no
+confirmado**— es una rotación de FCI hacia IB o cripto, donde el patrimonio no cambió y solo cambió de lugar.
+
+**Lo que falta no es un número, es el hecho.** Hoy quedan registrados los dos tramos por separado y en ninguna parte
+queda que fueron **el mismo movimiento**: salió de un vehículo y entró en otro. Sin eso no se puede contestar "cuánto
+invertí de verdad este mes" ni "cuánto roté", que son dos preguntas distintas.
+
+**Por qué esto le pone un techo al progreso del número (4.4).** El objetivo se calcula con el gasto; el **avance** se
+calcula con el patrimonio, y el patrimonio invertido vive en la tabla `inversion` (vía `get_totales_inversiones()`), no
+en `fin_transactions`. *Actualizado el 2026-09-19:* el 4.4 se cerró **cruzando las dos** desde el panel —
+`FinancePanel._freedom_progress()` — así que el avance ya se muestra (8,3%). Lo que sigue faltando es la conciliación:
+el cruce de hoy **suma saldos**, no verifica que cada peso que salió del banco haya llegado al vehículo. Ese chequeo es
+lo que permite detectar el caso que más importa: plata que
+salió de la cuenta bancaria hacia un vehículo y **no** apareció en el vehículo, o un aporte registrado en el vehículo
+que no salió de ninguna cuenta.
+
+**Posible bloqueador de datos, sin verificar:** `Aportes a IB` y `Retención USDT` nombran el destino, pero
+`Inversiones` es un cajón único que mezcla FCI, títulos y el resto. Si el destino no está en el dato, la conciliación
+por vehículo no se puede armar sin abrir esa categoría o agregar el vehículo a la fila. Hay que medirlo antes de
+diseñar: cuántas filas tiene `Inversiones` y qué comercios/conceptos hay adentro.
+
+**Chequeo previo obligatorio, también sin verificar:** que ningún rescate de inversión esté categorizado como
+`income` de verdad (una categoría del grupo `income`, no del grupo `investment`). Si alguno lo está, **infla el
+ingreso y por lo tanto la tasa de ahorro y el ahorro del mes** — el 22,7% del 1Y quedaría alto. El mapa dice que las
+tres categorías de inversión son `investment`, así que en principio no pasa; lo que no está medido es si alguna fila
+de rescate cayó en otra categoría por regla.
+
+**Orden natural:** va detrás de 1.6. Son el mismo tipo de trabajo —conciliar contra una fuente externa— y 1.6 es el
+más simple de los dos: el extracto bancario trae el saldo impreso, mientras que acá hay que cruzar dos tablas de dos
+módulos distintos.
+
 ------------------------------------------------------------------------
 
 ### Fase 2 — por qué reclasificar a mano no se pega
@@ -1014,9 +1056,77 @@ Medido sobre 13 líneas reales de los extractos (Santander, BBVA, Visa, Amex): *
 debito` → *Otros gastos*, prioridad 100: el instrumento, no el comercio. Clasifica correctamente 0 movimientos y
 manda a *Otros gastos* todo lo que se paga con débito en Santander —la cuenta del día a día—, con la prioridad ganando
 a reglas más específicas. Es el patrón exacto que `_clave_corta()` habría propuesto con la versión anterior del
-algoritmo, que se quedaba con el primer tramo. Se baja de prioridad en vez de borrarla: sin ella las compras con
-débito sin regla propia quedan sin categoría, y eso las hace visibles en la pasada del paso 2.0. SQL pendiente de
-correr, junto con la desactivación de las reglas con la línea completa como patrón (paso 2.3).
+algoritmo, que se quedaba con el primer tramo.
+
+**Ejecutado el 2026-09-19** (`UPDATE fin_import_rules SET priority = 200 WHERE id = 269;`). Bajar la prioridad y no
+desactivarla **no es lo mismo**, y conviene tenerlo claro porque son dos efectos distintos:
+
+| | Con `priority = 200` (lo que se hizo) | Con `is_active = 0` |
+|---|---|---|
+| Compra con débito **que tiene** regla de comercio | gana la regla buena — `ORDER BY priority, id`, menor número primero | gana la regla buena |
+| Compra con débito **sin** regla de comercio | sigue cayendo en *Otros gastos*, invisible | queda `Sin categoría`, visible en la pasada del 2.0 y en la fila roja del Flujo |
+| Efecto en el número de libertad financiera | se mantiene: *Otros gastos* tiene `expense_class` y suma al costo de vida | **baja** hasta que esas filas se clasifiquen |
+
+Se eligió bajar la prioridad: deja de pisar las reglas específicas —que era el daño— sin tirar el costo de vida hacia
+abajo por filas que todavía nadie clasificó. El paso **2.0** es el que las va a sacar de *Otros gastos*, y recién ahí
+tiene sentido desactivarla. **Lo que sella el caso no es este UPDATE sino `_clave_corta()`** (paso 2.1, ya en código):
+el popup no vuelve a proponer el instrumento como patrón, así que no puede nacer otra regla comodín por esta vía.
+
+Sigue pendiente de correr la desactivación de las reglas con la línea completa del resumen como patrón (paso 2.3).
+
+**La 269 no era la única — hallazgo del 2026-09-19 al verificar el UPDATE.** Listando las reglas activas por
+precedencia aparecieron dos más con el mismo defecto de fondo, el instrumento en lugar del comercio:
+
+| Regla | Patrón | Destino | Aciertos |
+|---|---|---|---|
+| 48 | `startswith MERPAGO` | *Otros gastos* | **140** |
+| 49 | `startswith MERCADOPAGO` | *Otros gastos* | 0 |
+
+`MERPAGO` es el prefijo de la billetera: es exactamente lo que `_clave_corta()` **saca** del texto para llegar al
+comercio. Con la 269 en 200, la 48 pasó a ser el comodín más dañino que queda activo — 140 coincidencias hacia el
+cajón. Mismo tratamiento, **ejecutado el 2026-09-19**:
+`UPDATE fin_import_rules SET priority = 200 WHERE id IN (48, 49);`. Con eso los tres comodines de instrumento quedan
+detrás de cualquier regla de comercio: 535 coincidencias que antes ganaban por prioridad y ahora pierden.
+
+**Esto cierra el criterio del paso 2.3, que estaba planteado como "limpiar reglas muertas".** De las 74 reglas activas,
+**22 tienen 0 aciertos** (CARREFOUR, JUMBO, WALMART, UBER, DIDI, DISNEY, HBO, SUBWAY, MOSTAZA…) y **ninguna es basura**:
+el patrón es el nombre del comercio, está bien escrito, y el contador en cero solo dice que ese comercio no apareció en
+los extractos cargados. Borrarlas no arregla nada y rompe la clasificación del día que aparezcan. Lo que el 2.3 tiene
+que limpiar no se detecta por el contador sino por **la forma del patrón**: el instrumento en lugar del comercio
+(269, 48, 49) y la línea completa del resumen con número de tarjeta y fecha adentro. Es la misma conclusión que ya
+estaba anotada para `hit_count`, ahora medida sobre el catálogo completo.
+
+**La sospecha sobre `startswith DIA` se midió y quedó descartada — pero el camino dejó una regla.** La hipótesis era que
+un prefijo de tres letras arrastraba filas ajenas, y de paso que las 13 reglas `startswith` eran ciegas a los dos
+formatos que más usa el usuario: pago por billetera (`MERPAGO*comercio`) y débito Santander
+(`Compra con tarjeta de debito — comercio`), donde el comercio nunca está al principio.
+
+Medido el 2026-09-19 contando, para cada regla `startswith` activa, las filas que **contienen** el patrón y **no
+empiezan** con él:
+
+| Regla | Filas que no ve | USD | Qué resultó ser |
+|---|---|---|---|
+| 1 `DIA` | 82 | 10.306 | **falsos positivos de subcadena** |
+| 48 `MERPAGO` | 37 | 239 | es el comodín: que no las vea es lo deseado |
+| 576, 3, 248, 13, 4 | 8 en total | 447 | ruido |
+| las otras 8 | 0 | — | el comercio no apareció, el patrón está bien |
+
+Los 10.306 USD de la regla 1 son `TRANSFERENCIA INMEDIATA` — inme**dia**ta —: 42 filas, ~10.020 USD, más
+`QUOTIDIANO`, `LA MUNDIAL` y `Comision custodia`. Las filas reales del supermercado (`MODO*DIA TIENDA 150`,
+`MERPAGO*SUPERDIA`, `Merpago/dia`, `Compra con tarjeta de debito Dia tienda 150`) **ya estaban todas en
+*Supermercado***, y los reintegros de la promo en *Reintegros y bonificaciones*, donde corresponde. No había nada
+perdido y no se tocó nada.
+
+**La regla que queda: `startswith` no es un defecto a corregir en masa, es una protección cuando el patrón es corto.**
+Pasar la regla 1 a `contains DIA` habría mandado 42 transferencias —10.020 USD— a *Supermercado*. Un patrón de tres
+letras solo es seguro anclado al principio; si hace falta que coincida en el medio, el `match_type` correcto es `regex`
+con límite de palabra (`\bDIA\b`), nunca `contains`. Para patrones largos y distintivos (CARREFOUR, JUMBO) la discusión
+no existe: la medición dio cero.
+
+**Con esto el paso 2.3 queda cerrado de criterio**, aunque falte correr la desactivación de las reglas con la línea
+completa del resumen como patrón. Lo que se aprendió en las tres mediciones: no se borra por `hit_count`, no se
+reescribe el `match_type` por hipótesis, y los únicos patrones que hay que bajar son los del instrumento en lugar del
+comercio — los tres ya bajados.
 
 ------------------------------------------------------------------------
 
@@ -1114,10 +1224,140 @@ de vida, 61%.
 como filas propias, y la fila **Gasto sin clase** se pinta en rojo cuando no es cero: mientras haya, el costo de vida
 y el número salen bajos. Hoy es 1 USD/mes (300 sobre 678.111, irrelevante, pero visible).
 
-**Lo que este paso no cubre: el progreso.** El plan pide *progreso = inversiones − deudas*. El patrimonio invertido lo
-da `get_totales_inversiones()`, pero el **saldo pendiente del préstamo de 9M ARS no está en ninguna tabla `fin_*`** —
-solo se ven las cuotas que ya se cobraron. Sin restarlo, el progreso queda inflado, y un porcentaje de avance
-demasiado optimista es peor que no mostrarlo. Queda abierto, junto con los años estimados por tasa de ahorro.
+**El progreso — cerrado el mismo día, con el hueco a la vista** (*"puede construir el punto 4.4 así vamos terminando"*).
+Unas horas antes este mismo registro decía que el progreso quedaba abierto porque el saldo del préstamo no está en
+ninguna tabla `fin_*`. **No se resolvió el dato: se resolvió la forma de mostrarlo.** Un avance que se calla lo que le
+falta miente; un avance que lo declara sirve, porque el error tiene signo conocido — el real es **menor**. La última
+fila del bloque, en rojo, dice `TECHO — falta restar el saldo del préstamo (paso 1.6)`.
+
+Se lee de arriba hacia abajo como una resta, medido el 2026-09-19 con la ventana 1Y:
+
+| Fila | USD | De dónde sale |
+|---|---|---|
+| Patrimonio a mercado | 57.896 | `SUM(mrkprice * position)` de `inversion`, `iactiva='Y'` |
+| (−) Deuda de margen | 411 | `SUM(deuda)` — comprado con plata prestada no es patrimonio |
+| (−) Cuotas de tarjeta pendientes | 1.349 | `get_installments_pending(120)` sobre `usdt` — consumo ya hecho esperando su resumen |
+| Patrimonio neto hoy | **56.136** | |
+| Número a cubrir (1Y) | 678.111 | costo de vida × 300 |
+| Falta | 621.975 | |
+| Avance | **8,3%** | barra `████░░░░` de 26 bloques |
+| Años al ritmo de ahorro | **26,8** | ahorro 712/mes, 5% real |
+
+**El horizonte de las cuotas es 120 meses, no 6.** La vista `Comprometido` proyecta 6 porque muestra el calendario de
+lo que viene; acá "pendiente" tiene que significar *todo* lo pendiente o el neto sale alto. El plan más largo que emite
+un banco local es de 24 cuotas, así que 120 meses es holgura, no un límite.
+
+**Los años salen de la anualidad con capital inicial, no de dividir el faltante por el ahorro.** El capital ya
+invertido también rinde: `FV = P(1+r)^n + PMT((1+r)^n − 1)/r`, resuelta en `n = ln((FV·r + PMT)/(P·r + PMT)) / ln(1+r)`.
+Dividir 621.975 por 712 daría 72 años — ignora que los 56.136 trabajan. El rendimiento real es
+`_FREEDOM_RENDIMIENTO_REAL = 0,05`, **un supuesto mío, no una medición de la cartera**, y por eso la fila lo escribe al
+lado del número (`Años al ritmo de ahorro (5% real)`).
+
+**La ventana que alimenta el progreso es 1Y, no 1M.** El número de 1M (582.127) y el de 6M (736.162) se separan en
+150.000 USD: con la ventana corta, el porcentaje de avance y los años saltarían con cada gasto raro del mes.
+
+*Corregido el mismo día:* la barra de estado seguía mostrando el número de la ventana corta —`totales["numero"][0]`—
+y le pegaba al lado el avance y los años, que se calculan con 1Y. Quedaba una línea con **582.127 y 26,8 años juntos**,
+dos ventanas distintas leídas como si fueran una sola cuenta. Ahora el status toma `[-1]`, la misma ventana que el
+progreso. De paso el texto se acortó: con la tasa de ahorro y `(último mes cerrado)` adentro no entraba en la fila de
+las pestañas y **se solapaba con ellas** cuando el panel es angosto. El detalle completo ya está en la tabla, la barra
+de estado es el resumen de un vistazo.
+
+**Lo que el número dice y el patrimonio no.** 8,3% cubierto con 26,8 años por delante es un resultado del **ahorro**,
+no del patrimonio: 712/mes contra un objetivo de 678.111. Cada 100 USD/mes de gasto menos baja el número 30.000 **y**
+sube el ahorro — pega por los dos lados, que es exactamente el objetivo 2 de §0.
+
+**Reparto de responsabilidades.** `get_totales_inversiones()` vive en `PlanInversion` y `FinanceScreen` no hereda de
+ella: son dominios distintos y ninguna puede resolver el progreso sola. Coordina el panel
+(`FinancePanel._freedom_progress()`), que instancia las dos y le pasa patrimonio y deuda a
+`FinanceScreen.get_freedom_progress()`. La alternativa —consultar `inversion` desde `FinanceScreen`— metería la tabla
+de cartera en el módulo de finanzas personales. `get_totales_inversiones()` se refactorizó agregando `SUM(deuda)` al
+SELECT que ya existía, en lugar de duplicar la query.
+
+**Bug latente encontrado de paso:** `Modulos_Mysql.py` usaba `math` en la línea 5105 sin tenerlo importado —
+`NameError` esperando a que alguien pasara por ese camino. Agregado al import de `Modulos_python`.
+
+#### El interés de margen entra al costo de vida (2026-09-19)
+
+Punto de partida del usuario: *"uso margen cuando veo que hay tendencia alcista, el activo promete. Solo recupero unos
+USD. Mi idea es no exceder 7.000 USD"*, y después *"deberíamos manejar los números reales, eso me mantendría a raya
+para no abusar del crédito; quiero que me pese en mi objetivo de ser libre financieramente"*.
+
+**El mecanismo ya existía: no hacía falta un vigilante, hacía falta que el interés fuera un gasto.** Mientras haya
+deuda, el interés se paga todos los meses, así que es costo de vida `fixed`. Con eso pega por los dos lados a la vez —
+sube el número (×300) **y** baja el ahorro—, que es exactamente lo que se pidió. Un tope que avisa al cruzar un umbral
+no cambia ningún número; este sí.
+
+**El dato estaba en `extractos.imargen`**, no en el ledger. `Class_DataFrame` ya parsea la línea `Interest / Debit` del
+extracto del broker y la guarda por mes y cuenta; es lo que se pagó de verdad, no una estimación sobre la tasa.
+(`Class_Analisis._evaluar_apalancamiento()` lee el mismo concepto del ledger IB para los semáforos de riesgo, pero
+ese camino es un snapshot MTD del momento en que se abre Análisis, no una serie.)
+
+Medido sobre los 12 meses cerrados al 2026-09-19:
+
+| Ventana | Costo de vida | Número | Ahorro/mes | Años |
+|---|---|---|---|---|
+| 1Y, antes | 2.260 | 678.111 | 712 | 26,8 |
+| 1Y, con margen | 2.279 | **683.794** | 693 | **27,2** |
+
+**El hallazgo no es el impacto, es que el progreso está restando la deuda equivocada.** `inversion.deuda` marca
+**411 USD** y el bloque PROGRESO resta eso. Pero 411 al 6,5% daría 2,23 USD/mes de interés y el extracto cobra **~22**:
+la deuda real es un orden de magnitud mayor.
+
+*Corrección del mismo día, anotada porque el error estaba en el método.* Se despejó la deuda desde el interés
+(~22 ÷ 6,5% → ~4.600) y se registró ese número. **Estaba mal y además sobraba:** el dato real ya estaba en pantalla,
+en el KPI `Deuda Total` del panel superior, que marca **6.900 USD**. Sale de
+`DataHub.manager_GyP["Stock"]["Debit"] + ["Crypto"]["Debit"]` (`DashMain.py`), el saldo en vivo del broker, con
+fallback a `kpi_snapshot` en `tmp/` cuando el WebSocket está caído. Cuadra contra el KPI `Leverage (D/K %)`: 9% sobre
+79,7K de capital ≈ 7,2K. La lección es de método: **antes de despejar un número con un parámetro supuesto, buscar si
+alguna vista ya lo muestra medido** — es la misma regla que [[feedback_reutilizar_antes_de_calcular]], aplicada a los
+datos y no solo a los métodos.
+
+*Segunda corrección, del mismo día y por el mismo motivo.* Se leyó ese 6.900 como **99% del techo de 7.000 USD** del
+usuario, y tampoco corresponde: **el KPI suma dos créditos de naturaleza distinta.** `Stock.Debit` es el margen de IB
+(`Class_customer.py`: `abs(cash_balance)` cuando el cash es negativo, o `gross_pos − mktvalue`); `Crypto.Debit` es el
+préstamo colateralizado de Binance (`Class_AgentManager.py`: `sum(loan_usd)`, lo escribe `Agente_LtvControl`). El techo
+de 7.000 es sobre el margen de IB, así que **el consolidado no sirve para vigilarlo** y el reparto de los 6.900 no
+está medido. No se despeja: se lee del header de cada pestaña, que ya publica `Debit` por vehículo.
+
+**Para el progreso, en cambio, la suma es lo correcto:** las dos son plata prestada y ninguna es patrimonio. Efecto
+sobre el progreso al restar la deuda consolidada en lugar de los 411:
+
+| | Con 411 (lo que resta hoy) | Con 6.900 (real) |
+|---|---|---|
+| Patrimonio neto | 56.136 | **49.647** |
+| Cubierto | 8,3% | **7,3%** |
+| Años | 27,2 | **27,8** |
+
+**Queda abierto por qué `inversion.deuda` suma 411.** No es "la deuda con otro criterio" hasta que se verifique qué
+escribe esa columna y desde dónde; mientras tanto el progreso debe leer la misma fuente que el KPI, que es el saldo
+que el broker reporta. *Probable, no confirmado:* que `inversion.deuda` se escriba solo para algunos vehículos o solo
+en el ciclo de algunas posiciones.
+
+**Y queda un hueco que el interés de margen dejó al descubierto: el costo del préstamo Crypto no entra al costo de
+vida.** `get_interes_margen()` lee `extractos.imargen`, que es el extracto de IB y solo cubre el margen de IB. El
+préstamo de Binance no tiene extracto equivalente en ninguna tabla y `Class_ApiBinnace.py` no registra interés en
+ningún lado. Así que la mitad del crédito pesa en el objetivo y la otra mitad no. *Probable, no confirmado:* que el
+préstamo colateralizado de Binance devengue interés que hoy no se guarda; hay que verificarlo contra el estado de
+cuenta del préstamo antes de decidir de dónde leerlo.
+
+**Tres decisiones de implementación:**
+
+| Decisión | Por qué |
+|---|---|
+| No se escriben filas en `fin_transactions` | El interés no pasó por ninguna cuenta bancaria: el broker lo cobra contra el saldo. Escribirlo como movimiento bancario mentiría sobre su origen y chocaría con `uq_tx` en cada reimportación. Se calcula al vuelo |
+| **No suma a `meses_con_dato`** | Los extractos del broker empiezan antes que la carga de Finanzas. Si sus meses contaran como "meses con movimiento", el divisor de 1Y pasaría de 8 a 12 y **diluiría todas las demás categorías**: el número bajaría por un motivo falso. El interés solo suma en meses que ya contaban |
+| Categoría propia, no dentro de `Intereses y financiación` | Esa ya trae 91 USD/mes de tarjeta. Separadas se ve cuánto cuesta cada crédito; juntas no se sabe cuál mover |
+
+**Reparto de responsabilidades, igual que con el patrimonio.** `extractos` es de la cartera, así que
+`PlanInversion.get_interes_margen(meses=12)` devuelve la serie `{"YYYY-MM": usd}` y el panel se la pasa a
+`get_category_flow()` por parámetro. El mes en curso queda afuera: su extracto todavía no cerró y el parcial leería
+como un mes barato. Falta `2026-03` en la serie — o no hubo deuda ese mes, o el extracto no está cargado; se resuelve
+con la cobertura de extractos, no acá.
+
+**Lo que esto no cubre.** El interés mide la deuda *promedio* del mes, no el pico ni el saldo de hoy, así que sigue sin
+haber un número que diga "hoy debés X de los 7.000". Eso es el paso 1.6 otra vez: mientras `fin_accounts.balance` esté
+en 0 y el saldo del préstamo no esté en ninguna tabla `fin_*`, el neto del progreso es un techo.
 
 **Dónde se ve.** Cuarta vista del panel de detalle (`Flujo`), junto a `Últimas transacciones`, `Cobertura` y
 `Comprometido`. Con la cuarta vista, el `pack_forget` de las demás pasó a `_pack_solo()`: repetirlo en cada `_show_*`
