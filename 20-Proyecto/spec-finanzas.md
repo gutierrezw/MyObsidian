@@ -73,17 +73,20 @@ al cerrar la Fase 1.
 
 | # | Paso | Cierra cuando |
 |---|------|---------------|
-| 2.1 | Popup de categoría: clave corta, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13) | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
+| 2.0 | **Bug: la aplicación hacia atrás no tocaba las filas sin clasificar** — `save_rule()` las seleccionaba con `classified_by IS NULL` y después las descartaba con `AND classified_by != 'manual'` (`NULL != 'manual'` es NULL, no TRUE). **Código corregido el 2026-09-18** (`COALESCE(classified_by, '') <> 'manual'`); falta la pasada única sobre el backlog que el bug dejó sin clasificar | guardar una regla mueve las N filas que el preview prometió **y** el histórico acumulado quedó clasificado |
+| 2.1 | Popup de categoría: clave corta —hoy el patrón por defecto es la descripción completa y no vuelve a coincidir el mes siguiente—, aplicación hacia atrás mirando el detalle, prioridad 30 y `expense_class` (mejora 2 de la revisión del 2026-09-13) | un ajuste desde el popup clasifica todas las filas del mismo destinatario |
 | 2.2 | Pantalla "Revisión de categorías" por destinatario + clic visible en `_CategoryBar` (mejora 3) | reasignar un grupo crea la regla y la aplica |
 | 2.3 | Reglas: corregir las que tienen raya o sufijo de origen, desactivar las muertas, genéricas para planes de tarjeta, que gane la más específica (#269) | menos de 20 reglas activas sin aciertos |
 | 2.4 | Imports sin filas: revisar y borrar con autorización | 0 imports vacíos sin motivo |
+| 2.5 | Comercios repartidos en más de una categoría: listado de destinatarios con 2+ categorías y cuántas filas en cada una, con reasignación del grupo entero. Caso testigo "panadería porteña" | ningún comercio recurrente queda partido sin que sea a propósito |
+| 2.6 | Al recategorizar, mostrar lo que ya hay: categorías que ese comercio tuvo, filas en cada una y si ya existe una regla apuntándole | el popup deja de decidir a ciegas sobre una sola fila |
 
 **Fase 3 — Tablero "cómo voy"** (objetivos 5 y 6)
 
 | # | Paso | Cierra cuando |
 |---|------|---------------|
 | 3.1 | Vista mensual de 12 meses: ingreso, gasto fijo / variable / extraordinario, ahorro y % de ahorro. Reutiliza `get_monthly_evolution` y `expense_class` | se ve en una pantalla si el mes cerró en positivo y por qué |
-| 3.2 | Comprometido del mes próximo: cuotas a vencer por tarjeta (`fin_card_installments_due`) + cuota de préstamo + fijos promedio | se sabe cuánto del próximo sueldo ya está gastado |
+| 3.2 | Comprometido del mes próximo: cuotas a vencer por tarjeta (~~`fin_card_installments_due`~~ — sin tabla nueva, ver registro de Fase 3) + cuota de préstamo + fijos promedio | **Cuotas hechas el 2026-09-18**; faltan la cuota de préstamo y los fijos promedio |
 | 3.3 | Resumen mensual por Telegram al cerrar el mes: ingreso, gasto, ahorro, 5 categorías principales y desvío contra el promedio (ex E4) | llega solo, sin pedirlo |
 
 **Fase 4 — Reducir gastos** (objetivos 4 y 6)
@@ -775,6 +778,133 @@ mira el detalle, así que un extracto superpuesto no duplica filas.
   ninguno. La fila sintética `BINANCE-INV-YYYY-MM` no tiene import y no adelanta la ventana. Una fuente que falla
   no frena a la otra. Primera verificación: 0 filas nuevas en las dos ventanas — todo estaba cargado por PDF.
   **Desde acá el PDF de C2C ya no hace falta.**
+
+------------------------------------------------------------------------
+
+### Fase 2 — por qué reclasificar a mano no se pega
+
+**Caso testigo: "panadería porteña"** — pedido del usuario el 2026-09-18: *"la reclasifico de manera manual en casi
+todos los meses"*, y de ahí tres cosas que quiere: *"mirar los movimientos que caen en más de una categoría"*,
+*"por qué no se replican todos los movimientos hacia atrás y adelante cuando reclasifico"* y *"que cuando se vaya a
+recategorizar un movimiento se muestren las categorías que ya tiene"*.
+
+No es un pedido de función nueva solamente: la replicación hacia atrás **ya existe** en el código y no funciona.
+Leído y **medido contra la BD** el 2026-09-18, son **tres causas distintas** y cada una rompe un tramo diferente.
+La que produce el caso testigo es la B; la A es un bug aparte que se encontró buscándola.
+
+**Lo que se midió primero** (1.539 filas de `fin_transactions`): `rule` 1.258, **`manual` 214** — el trabajo a mano,
+inmune a toda regla —, `classified_by` NULL **con** categoría 37, NULL **sin** categoría solo **21** (205 USD),
+`synthetic` 9. Con 21 filas sin clasificar en todo el histórico, la hipótesis "las filas nuevas llegan sin
+categoría" queda descartada: **llegan con una categoría puesta por una regla**, y el usuario la corrige.
+
+**Causa A — CORREGIDA el 2026-09-18 — hacia atrás: el UPDATE descartaba justo las filas que venía a arreglar.**
+Pesa menos de lo que parecía (21 filas, 205 USD), pero el arreglo destapó algo peor: al corregir solo el `NULL`,
+el retro quedaba habilitado a pisar las **37 filas con categoría y `classified_by` NULL** — categorías puestas por
+SQL durante el saneamiento, decisiones tan deliberadas como las manuales. De esas 37, **26 coincidían con alguna
+regla activa**: 4.156 USD expuestos (6 filas en *Pago tarjeta crédito*, 2 en *Préstamo recibido*, 6 en
+*Inversiones*) contra 205 USD de backlog legítimo. Así que el predicado correcto no es "no pisar lo manual" sino
+**"no pisar nada que ya tenga categoría"**, y vive una sola vez en `_SQL_RECLASIFICABLE`, usado por el SELECT de
+candidatos, por el UPDATE y por el preview. Que fueran dos predicados distintos **era** el bug.
+
+Diagnóstico original: `save_rule()`
+(`Modulos_Mysql.py`) elige candidatos con `WHERE classified_by IS NULL OR classified_by = 'rule'` y después aplica
+con `WHERE id IN (...) AND classified_by != 'manual'`. En SQL `NULL != 'manual'` **no es verdadero, es NULL**, así
+que las filas sin clasificar —la mayoría del histórico, y las que el `IS NULL` acababa de seleccionar— nunca se
+actualizan. Solo se mueven las que ya tenían `classified_by = 'rule'`. El segundo filtro es además redundante: el
+`SELECT` ya había excluido las manuales. Efecto visible: el preview del popup (`save_rule_count_retro()`, que usa
+el mismo `SELECT` y **no** el segundo filtro) promete *"coinciden N transacciones"* y se aplican muchas menos, o
+ninguna. Es un bug de una línea, no un rediseño.
+
+**Causa B — CONFIRMADA CON DATOS, es la que produce el caso testigo — hacia adelante: el patrón por defecto es la
+descripción completa.** El comercio no se llama "panadería" en la BD (`LIKE '%PANADER%'` no devuelve nada): es
+**"La portena"**. Sus reglas, las tres creadas por el usuario y las tres apuntando a *Restaurantes* con
+prioridad 50:
+
+| id | patrón | tipo | aciertos | último acierto |
+|---|---|---|---|---|
+| 317 | `Compra con tarjeta de debito — La portena - tarj nro. 2861` | contains | **0** | nunca |
+| 530 | `Compra con tarjeta de debito — La portena - tarj nro. 2861` | exact | **0** | nunca |
+| 490 | `La portena` | contains | **14** | 2026-09-16 |
+
+El bucle completo, y no hay ninguna pieza que lo corte: la regla **490 funciona** y manda el movimiento a
+*Restaurantes*; el usuario lo corrige a mano a la categoría que corresponde y esa fila queda `manual`; al guardar,
+el popup propone como patrón **la línea entera del resumen** —con el número de tarjeta adentro— y crea la 317 y la
+530, que no coinciden con nada nunca (aciertos 0 y 0); la 490 **sigue activa y sigue ganando**, así que el mes que
+viene el movimiento vuelve a entrar como *Restaurantes*. Dos reglas nuevas por corrección, ninguna útil, y la que
+causa el problema intacta.
+
+De ahí que el pedido *"que se muestren las categorías que ya tiene"* sea más exacto de lo que parecía: lo que falta
+no es solo ver la categoría, es **ver la regla que se la puso**, para corregir la 490 en lugar de crear la 531.
+
+`_CategoryEditPopup` arranca con
+`self._var_pattern = StringVar(value=raw_desc.strip())` y `match_type = "contains"`. Si la descripción del comercio
+trae comprobante, sucursal o fecha —y las de tarjeta los traen—, ese patrón entero no vuelve a coincidir nunca con
+el resumen del mes siguiente: `apply_rules()` no lo encuentra, la fila entra sin categoría y hay que corregirla a
+mano otra vez. Es el mismo fenómeno que partió el plan `Look shopping adrogu` / `adrogue` en dos (§ Fase 3): **la
+descripción no es clave estable**. Por eso el paso 2.1 pide "clave corta": el patrón que se guarda no debe ser la
+línea del resumen, sino la parte del nombre del comercio que se repite.
+
+**Causa C — una fila tocada a mano queda inmune para siempre.** `update_txn_category()` estampa
+`classified_by='manual'` sobre **una sola fila**, y desde ese momento ninguna regla la vuelve a evaluar. Esto es
+deliberado y debe quedar así —la decisión del usuario no se pisa con una automatización—, pero tiene un costo que
+nadie había anotado: si más adelante cambia de criterio, las filas viejas que corrigió a mano conservan la
+categoría vieja. **Ese es el origen del primer pedido**: el mismo comercio termina repartido en dos o tres
+categorías, y ninguna pantalla lo muestra hoy. La salida no es dejar que las reglas pisen lo manual, es poder
+**ver** el reparto y reasignar el grupo entero a propósito (pasos 2.2 y 2.5).
+
+**Lo que hoy no existe.** El popup muestra la categoría *de esa fila* (`txn_row.get("category")`) y nada más: no
+muestra qué otras categorías tuvo ese comercio, ni cuántas filas hay en cada una, ni si existe ya una regla
+apuntándole. Sin eso el usuario decide a ciegas y cada corrección es una fila, no un criterio.
+
+**Qué cierra esto, en orden.** (1) El paso 2.1 con clave corta — sin eso cada corrección sigue dejando basura;
+(2) el popup mostrando las reglas que ya matchean el movimiento, con la opción de **editar o desactivar** la que
+gana (paso 2.6); (3) limpieza de las reglas con 0 aciertos (paso 2.3 — las 317 y 530 son el ejemplo, y hay que ver
+cuántas más hay); (4) la pasada única sobre las 21 filas sin clasificar (paso 2.0). Lo que **no** hay que hacer es
+dejar que las reglas pisen lo manual: las 214 filas a mano son decisiones, y el problema es que haya que tomarlas
+214 veces, no que se respeten.
+
+------------------------------------------------------------------------
+
+### Fase 3 — registro de lo hecho
+
+**3.2 — comprometido hacia adelante: las cuotas** (2026-09-18).
+
+Pregunta que lo disparó, y que el panel no podía contestar: *"¿cuánto tengo que pagar completo en octubre?"*. El mes
+en curso se veía entero, pero lo que ya está comprometido hacia adelante no se veía en ninguna parte: una cuota
+existe en la BD solo desde el resumen que la cobra, así que un plan 3/12 tiene nueve cuotas que todavía no son
+ninguna fila.
+
+*Cambio de enfoque sobre el plan original:* el paso pedía una tabla `fin_card_installments_due`. **No se creó, y no
+debe crearse.** Todo lo que esa tabla guardaría ya está en `fin_transactions`: la última cuota cargada de cada plan
+trae el monto, la moneda, el cierre que la cobró y el total de cuotas. Una tabla aparte sería una segunda copia de
+un dato derivable, con su propio camino para quedar desactualizada — y el problema de este módulo nunca fue la falta
+de tablas sino la confianza en las que hay. La proyección se calcula al leer, en
+`FinanceScreen.get_installments_pending()`.
+
+**Cómo identifica un plan.** Por `(cuenta, comprobante, total de cuotas)`, no por la descripción. El texto no sirve
+de clave: el mismo plan llega escrito distinto en cada resumen —`Look shopping adrogu` y `Look shopping adrogue`
+partieron un plan de 6 cuotas en dos grupos de 5 y 1, y durante días pareció una cuota faltante—. El comprobante es
+el mismo en todas las cuotas del plan.
+
+**Qué proyecta.** Las cuotas posteriores a la última cargada, una por mes desde su cobro. No hay doble conteo con
+los KPIs: lo ya facturado queda del lado de la última cuota conocida y la proyección arranca recién después.
+
+**El monto futuro es el de la última cuota conocida, y eso sobreestima a propósito.** En un plan en pesos la cuota
+es fija en ARS, así que su equivalente en dólares baja con el tipo de cambio: proyectar con el valor de hoy deja el
+número del lado caro. Para una pregunta de "¿me alcanza?" equivocarse hacia arriba es lo correcto.
+
+**Una cuota proyectada con fecha anterior al mes en curso no es un error de cálculo** — es un resumen que no llegó,
+el mismo hueco que marca `get_coverage()`. Se muestra en su período real en vez de esconderse.
+
+**Dónde se ve.** Tercera vista del panel de detalle (`Comprometido`), junto a `Últimas transacciones` y `Cobertura`,
+en bloques por mes y con el total del mes arriba de cada bloque. Las tres vistas pasaron a un solo estado
+`self._detail` (`txn` / `cover` / `commit`): con dos banderas booleanas, tres vistas admiten una combinación
+inválida. No depende del período elegido —mira hacia adelante—, sí de los chips de cuenta.
+
+**Lo que este paso todavía no cubre:** la cuota del préstamo y los fijos promedio (alquiler, expensas, familia,
+servicios, suscripciones). Son de naturaleza distinta: la cuota de tarjeta es un compromiso con fecha y monto
+exactos, el fijo es un promedio. Mezclarlos en un solo número borraría esa diferencia, y el número que hay que
+tener reservado para que el banco no cuotifique al 69–102% es el de las cuotas.
 
 ------------------------------------------------------------------------
 
