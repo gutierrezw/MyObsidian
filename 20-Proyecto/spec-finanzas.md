@@ -538,7 +538,8 @@ al paso 4.3 y la Fase 5.
   `uq_cat_name (name)`.
 - `parent_id` quedó en NULL en todas: el mapa es plano. La columna sigue existiendo.
 
-**Mapa vigente (32 categorías; Mudanza se sumó el 2026-09-17, ver "Revisión del 2026-09-17"):**
+**Mapa vigente (35 categorías; Mudanza se sumó el 2026-09-17 y las tres `transfer` de liquidez el
+2026-09-21, ver las revisiones de esas fechas):**
 
 | Tipo | Clase | Categorías |
 |------|-------|-----------|
@@ -546,8 +547,8 @@ al paso 4.3 y la Fase 5.
 | expense | variable | Supermercado, Restaurantes, Transporte, Salud, Médico, Hogar, Ropa y compras personales, Otros gastos |
 | expense | extraordinary | Tecnología, Viajes, Mantenimiento, Cancelación de préstamo, Mudanza |
 | income | — | Sueldo, Reintegros y bonificaciones, Intereses ganados, Otros ingresos |
-| transfer | — | Pago tarjeta crédito, Entre cuentas propias, Cambio de moneda, Préstamo recibido |
-| investment | — | Inversiones, Aportes a IB, Retención USDT |
+| transfer | — | Pago tarjeta crédito, Entre cuentas propias, Cambio de moneda, Préstamo recibido, Liquidez FCI, Compra de USD, Deposito garantia alquiler |
+| investment | — | Aportes a IB, Retención USDT, ~~Inversiones~~ (vaciada el 2026-09-21: 1 fila de 0,00) |
 
 Médico, Mantenimiento, Viajes y Otros ingresos no tienen filas: quedan por decisión del usuario.
 
@@ -595,6 +596,59 @@ categoría 49 → 32. KPIs 2026 verificados contra la BD después de migrar:
 - Las cuotas de tarjeta se importan con la fecha de la compra original: CUOTIFICACION 1-06…5-06 viene de cinco
   extractos distintos y las cinco filas quedan el 2026-02-07.
 - Re-aplicar las reglas una vez corregidas (escritura en BD, con autorización).
+
+**Revisión del 2026-09-21 — mover plata de un bolsillo a otro no es invertir.**
+
+El KPI "Invertido" daba negativo en julio y agosto. No era un bug: la categoría `Inversiones`
+(`investment`) juntaba tres cosas que no son inversión, y el rescate de FCI entraba como `income` del
+grupo, restando.
+
+| Familia | Movs | Sale | Entra | Qué es |
+|---|---|---|---|---|
+| FCI Santander — suscripción / rescate | 76 | 10.180,96 | 6.539,26 | caja de ahorro de facto |
+| FCI BBVA — oper. fondo común | 58 | 3.913,99 | 3.676,37 | rotación pura |
+| Títulos y liquidaciones | 13 | 251,47 | 180,24 | compra de USD para pagar la tarjeta |
+| Títulos BBVA del 15/04 | 2 | 713,82 | — | depósito de garantía del alquiler |
+| `COMPENSACION DE FONDOS` | 1 | 0,00 | — | lo único que sigue en `Inversiones` |
+
+Tres categorías nuevas, todas `transfer`: **Liquidez FCI** (134 filas), **Compra de USD** (13) y
+**Deposito garantia alquiler** (2). La inversión real vive en `Aportes a IB` (2.450,00) y
+`Retención USDT` (2.681,97).
+
+**Invertido 2026: 9.596 → 5.132.** Julio pasa a +126,72 y agosto a +258,31. El ahorro, el costo de vida y
+el número de libertad **no se mueven**: `ahorro = ingreso − gasto` y el grupo `investment` no participa de
+ninguno de los tres.
+
+Por qué el FCI es `transfer` y no `investment`: el usuario intentó tenerlo en un fondo aparte y se confundía
+al regularizar —sacaba o metía donde no era—, así que dejó uno solo, y los movimientos que se ven son los de
+cuando toca pagar el alquiler o cubrir un gasto. Ese gasto ya se registra como gasto cuando se paga; contar
+además el rescate como desinversión lo cuenta dos veces. La compra de USD tampoco empobrece: el gasto es el
+consumo de la tarjeta, que el resumen ya trae.
+
+El depósito de garantía va en categoría propia porque **vuelve** al terminar el contrato. No es gasto hoy; el
+día que no lo devuelvan, ese día sí lo es, y por eso tiene que quedar identificable para cruzarlo.
+
+**Efecto lateral: los 3.641,70 USD que quedaron dentro del FCI de Santander desaparecieron del panel.** Antes
+se veían inflando "Invertido" —mal, pero se veían—. Hoy "Invertido" dice la verdad y el saldo del fondo no
+tiene dónde mostrarse, porque `fin_accounts.balance` sigue en 0 en las 10 cuentas. Eso le sube la prioridad al
+paso **1.6**: sin saldos, la plata que está en el fondo es invisible.
+
+**Reglas de import.** Reapuntadas a las categorías nuevas: 252, 309 y 350 (FCI); 68, 69, 158, 264 y 515 (compra
+de USD). Borradas 7 — `TEST_PATRON_NO_EXISTE` (365), las duplicadas 253 y 304, y cuatro (356, 357, 449, 450)
+cuyo patrón era el número de comprobante completo: es único por operación, así que no podían volver a coincidir
+nunca.
+
+**El instalador puede deshacer esto, y además está roto.** `insert_rules()` de `AppTest/run_finanzas_setup.py`
+hace `ON DUPLICATE KEY UPDATE category_id = VALUES(category_id), is_active = 1` sobre
+`uq_rule (pattern, match_type)`: correrlo devuelve las reglas 68 y 69 a `Inversiones` y las reactiva. Hoy no
+llega a ejecutarse, pero por accidente del orden —`insert_categories()` inserta en la columna `type`, borrada el
+2026-09-13, y aborta con error 1054—. Eso mismo significa que **el instalador no puede crear el módulo Finanzas
+en una versión hijo**: su seed de categorías quedó en el mapa anterior a las fusiones. Pendiente de E2.
+
+**`amount_usdt` no usa el tipo de cambio de la operación.** La compra del 15/04 fueron 1.048.480,49 ARS que el
+módulo convirtió a 713,75 USD — rate implícito 1.469. Si de ahí salieron los 750 USD del depósito, el MEP
+efectivo fue 1.398: un 5% de diferencia. Sin confirmar contra el contrato, pero si el rate de `amount_usdt` no
+es el de la operación, todos los montos en USD del panel arrastran ese sesgo.
 
 **Revisión del 2026-09-13 — mesadas de Daniel y Yolemi.**
 
