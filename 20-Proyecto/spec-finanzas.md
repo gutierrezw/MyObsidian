@@ -16,7 +16,7 @@
 | 1 | Agregar otras cuentas | Un adapter por formato de extracto nuevo + alta en `fin_accounts` | 8 adapters (BBVA ×3, Santander, Citi, BDV, Banesco, Binance C2C) y detección por palabra clave. Banesco (2026-09-13) hereda de BDV y solo cambia la lectura: mide las columnas desde la cabecera del detalle, porque la hoja 1 trae titular y resumen a la izquierda y las siguientes no. Tres cuentas dadas de alta nunca recibieron filas: BBVA CA USD, BBVA CC ARS, Santander Débito |
 | 2 | Categorías bien ajustadas y replicadas en todos los extractos | Reglas que comparan el mismo texto que se ve en pantalla, reglas específicas (no `TRANSFERENCIA` a secas) | Mapa plano de 31 categorías con tipo y clase (2026-09-13, ver "Mapa de categorías"). `fin_import_rules` con prioridad y aplicación retroactiva |
 | 3 | Ejecución de mínimo esfuerzo, aunque sea importante | El usuario solo deja el PDF (más adelante ni eso: Gmail). Lo que las reglas no clasifican lo sugiere la IA y queda en una cola de un clic; lo que falta avisa solo | `Agente_ExtractosWatcher` (thread propio; un PDF reconocido del que no sale ninguna fila va a `desconocidos/`), `Agente_BinanceApiSync` (C2C y Pay de Binance por API, diario, sin descargar nada — ver "Extractos y cargas automáticas"), patrón Haiku de `Agente_ClasificadorCrypto`, `DataHub.add_alert` → Telegram. `needs_review` y `classification_confidence` ya existen en `fin_transactions`, sin uso |
-| 4 | Encontrar el número de libertad financiera y trabajar en función de él: reducir gastos, potenciar inversiones | Gasto anual recurrente ÷ tasa de retiro (4% → ×25, configurable). Progreso = patrimonio invertido ÷ número. Años estimados según la tasa de ahorro. Variante a evaluar: ingreso pasivo ≥ gasto recurrente | `get_totales_inversiones()` ya da el patrimonio invertido en USD de todos los vehículos |
+| 4 | Encontrar el número de libertad financiera y trabajar en función de él: reducir gastos, potenciar inversiones | Gasto anual recurrente ÷ tasa de retiro (4% → ×25, configurable). Progreso = capital invertido ÷ número (base cambiada el 2026-09-20; antes a mercado). Años estimados según la tasa de ahorro. Variante a evaluar: ingreso pasivo ≥ gasto recurrente | `get_totales_inversiones()` ya da el patrimonio invertido en USD de todos los vehículos |
 | 5 | Disponible en banco a fin de mes | Guardar el saldo final de cada extracto por cuenta | Los parsers ya leen `SALDO ANTERIOR` / `SALDO ACTUAL` y los descartan. `fin_accounts.balance` existe y está en 0 en todas las cuentas |
 | 6 | Diferenciar gastos recurrentes de fortuitos | Detección de mismo comercio con frecuencia ~mensual | `fin_categories.expense_class` (fijo / variable / extraordinario, 2026-09-13). `is_recurring` y `recurring_group_id` ya existen: 0 de 813 filas marcadas |
 
@@ -98,7 +98,7 @@ al cerrar la Fase 1.
 | 4.1 | Recurrentes y suscripciones: `is_recurring` por comercio presente en 3 o más meses; lista con costo mensual y anual. Candidatos de la foto: Adobe, Anthropic, Claro, Netuno, Metrogas, comisiones de cuenta | cada ítem revisado con el usuario: se queda o se corta |
 | 4.2 | Costos evitables: comisiones, intereses por descubierto, impuestos de tarjeta, Monthly Service Fee de Citi, intereses de planes; total anual | se conoce el total anual y qué cambio lo baja |
 | 4.3 | Presupuesto por categoría = promedio de los 3 últimos meses cerrados; alerta al 80% y al 100% durante el mes (ex E6) | primera alerta real |
-| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro. **HECHO el 2026-09-19:** la vista `Flujo` muestra el promedio por categoría en 1M/3M/6M/1Y, el número al pie (678.111 en 1Y) y el bloque PROGRESO — neto 56.136 = 57.896 a mercado − 411 de margen − 1.349 de cuotas, **8,3% cubierto, 26,8 años** al ritmo de 712/mes con 5% real supuesto. El avance es un **TECHO declarado en pantalla**: el saldo del préstamo no está en ninguna tabla `fin_*` (lo desbloquea 1.6) | número y progreso visibles en el panel |
+| 4.4 | Número de libertad financiera (ex E5): gasto base (`fixed` + `variable`) × 12 × 25; progreso = inversiones − deudas; años estimados con la tasa de ahorro. **HECHO el 2026-09-19:** la vista `Flujo` muestra el promedio por categoría en 1M/3M/6M/1Y, el número al pie (678.111 en 1Y) y el bloque PROGRESO — neto 56.136 = 57.896 a mercado − 411 de margen − 1.349 de cuotas, **8,3% cubierto, 26,8 años** al ritmo de 712/mes con 5% real supuesto. El avance es un **TECHO declarado en pantalla**: el saldo del préstamo no está en ninguna tabla `fin_*` (lo desbloquea 1.6). **Ajustado el 2026-09-20:** la base del avance pasa a ser el **capital invertido** (79.713) y no el valor de mercado (57.847) porque el usuario está en acumulación; el panel muestra `k 0,73` al lado y el techo nombra los dos motivos. Misma tanda: la deuda deja de salir de `SUM(inversion.deuda)` (411) y se lee de `DataHub`, la fuente de la barra `Deuda Total` (6.900) → **10,5% cubierto, 25,9 años** | número y progreso visibles en el panel |
 
 **Fase 5 — Mínimo esfuerzo** (objetivo 3; ex E4 y E6): IA para lo que las reglas no clasifican + cola
 `needs_review` de un clic, tasa de cambio diaria en `fin_exchange_rates`, captura por Gmail, `account` en las
@@ -1277,6 +1277,91 @@ SELECT que ya existía, en lugar de duplicar la query.
 **Bug latente encontrado de paso:** `Modulos_Mysql.py` usaba `math` en la línea 5105 sin tenerlo importado —
 `NameError` esperando a que alguien pasara por ese camino. Agregado al import de `Modulos_python`.
 
+#### La base del avance pasa a ser el capital invertido (2026-09-20)
+
+Pregunta del usuario: *"Mi plan de inversion esta en base al capital invertido, es posible calcular el numero de
+libertad financiera del mismo modo?"*, y después de ver los números: *"ahora estoy en la etapa de acumulacion, ni
+pretendo sacar dinero de mis inversiones, por eso siempre hablo de capital invertido"*. Decisión: **un solo valor de
+avance, medido sobre lo aportado, con el k a la vista**.
+
+**Esto revierte el criterio con el que se cerró el 4.4 el día anterior** (la tabla de arriba, que mide a mercado). No se
+borra: el avance a mercado sigue siendo el número honesto para la pregunta *"cuánta renta paga la cartera"*, y el nuevo
+es el número honesto para *"cuánto capital logré apartar"*. El usuario gestiona la segunda porque es la que controla, y
+es la misma base que su plan de inversión (`trazaplan.tinversion`).
+
+**Antes de cambiarlo se midió la brecha**, porque la elección tiene un costo y no se puede declarar sin el número
+(`inversion`, `iactiva='Y'`, 2026-09-20):
+
+| Vehículo | Capital invertido | Valor de mercado | Brecha | k |
+|---|---|---|---|---|
+| Stock | 63.892 | 45.584 | −18.309 | 0,713 |
+| Crypto | 8.982 | 5.567 | −3.414 | **0,620** |
+| BBVA.ARS | 6.839 | 6.727 | −112 | 0,984 |
+| **Total** | **79.713** | **57.847** | **−21.866** | **0,727** |
+
+El dato está sano: `SUM(unrealizedpnl)` cuadra con `SUM(mrkprice*position) − SUM(costobase)` al centavo en los tres
+vehículos, y ninguna posición tiene `mrkprice` en 0 (que habría fabricado un k bajo sin pérdida real).
+
+**El costo de la elección, con el número del 2026-09-19 (678.111):**
+
+| | A mercado (2026-09-19) | Sobre lo aportado (2026-09-20) |
+|---|---|---|
+| Base | 57.847 | 79.713 |
+| Neto tras deuda y cuotas | 56.136 | 77.953 |
+| Avance | 8,3% | **11,5%** |
+| Años al ritmo de ahorro | 26,8 | **24,9** |
+
+Son **+3,2 puntos de avance y −1,9 años** (calculado, a confirmar contra el panel abierto). Los años son la parte que
+importa: la anualidad compone el 5% real sobre el capital inicial, así que tomar la base en aportes proyecta
+crecimiento sobre 21.866 USD que el mercado no reconoce y **adelanta la fecha de libertad casi dos años**. La brecha no
+desaparece por no vender; solo se cierra si el mercado sube.
+
+La tabla de arriba compara **solo el efecto de la base** y por eso las dos columnas restan los 411 que el bloque
+restaba ese día. Con la deuda corregida en la misma tanda (abajo) y el número que ya incluye el interés de margen
+(683.794), el estado vigente del bloque es **10,5% cubierto y 25,9 años** sobre un neto de 71.464.
+
+**Por qué no se traduce el objetivo en vez del avance.** La alternativa era dejar el avance a mercado y llevar el
+número a base aportes: `N_capital = N / k` = 678.111 / 0,727 ≈ 933.000. Es matemáticamente coherente y **devuelve
+exactamente el mismo 8,3%** —dividir numerador y denominador por el mismo k no mueve el porcentaje—, así que no
+responde lo que el usuario pidió: quería un solo valor, no dos lecturas del mismo.
+
+**Cómo se declara en pantalla.** La resta del bloque PROGRESO arranca ahora en `Capital invertido` y termina en
+`Capital propio hoy`; debajo de la barra hay una fila nueva:
+
+```
+Valor a mercado — k 0,73 (el mercado reconoce 73% de lo aportado)        57.847
+```
+
+Va en rojo mientras `k < 1`, por la misma razón que el techo: **son 21.866 USD que la barra de arriba no descuenta**, y
+un avance que se calla lo que le falta miente. La fila del techo pasa a nombrar los dos motivos a la vez —
+`TECHO — base en lo aportado y falta el saldo del préstamo (paso 1.6)`— y la barra de estado dice
+`% cubierto sobre lo aportado`, para que la base no quede implícita en ningún lado.
+
+**La deuda se sigue restando, y en la misma tanda se corrigió de dónde sale** (*"el (−) Deuda de margen lo estás
+tomando mal — 6.9K"*). Restarla no se discute: el costo base de lo comprado con margen entra en `costobase` igual que
+el resto, así que sin restarla el "capital propio" incluiría plata prestada. Lo que estaba mal era la fuente —
+`SUM(inversion.deuda)`, 411 USD contra 6.900 reales. `FinancePanel._deuda_inversion()` lee ahora
+`DataHub.manager_GyP["Stock"]["Debit"] + ["Crypto"]["Debit"]`, la **misma fuente que la barra `Deuda Total`** del panel
+superior, con el mismo fallback a `kpi_snapshot` cuando el WebSocket de Stock está caído (sin él el margen vendría en 0
+y el avance saldría inflado). Para Binance no hay snapshot: si el panel se abre antes del primer ciclo de
+`Agente_LtvControl` la deuda queda corta y el avance optimista — consistente con el techo que el bloque ya declara.
+La fila pasa a llamarse `(−) Deuda de inversión (margen IB + préstamo)`, porque son dos créditos y no uno.
+
+**Hallazgo lateral, y es el más grave: el plan de inversión no mira el valor de mercado en ningún punto.** Los dos
+indicadores de `trazaplan` miden contra el capital aportado, y `extractos.crecimiento` es
+`Realized S/T Profit + Realized L/T Profit` (`Class_DataFrame.py:840`) — **solo realizado**:
+
+| Indicador | Fórmula | Qué ve |
+|---|---|---|
+| `trazaplan.efectividad` | `(tinversion − vision) / vision` | aportes contra meta de aportes |
+| `trazaplan.trendimiento` | `beneficios / costobase` | solo ganancia realizada |
+
+Con eso un año puede cerrar `Cumplido` mientras el patrimonio cae, y los −21.866 no aparecen en ninguna fila del plan.
+El dato para arreglarlo **ya viaja y se descarta**: `select_extracto("sum*")` trae `SUM(navcierre)` — el valor de cierre
+de cada mes — y `update_plan()` usa solo `costobase` (`Class_gestion.py::update_plan()`). Queda en el BACKLOG: mostrar
+`navcierre` junto a `tinversion` en el plan, para ver en qué año se abrió la brecha. No se hizo en este commit porque
+toca el módulo del plan, que es otro dominio.
+
 #### El interés de margen entra al costo de vida (2026-09-19)
 
 Punto de partida del usuario: *"uso margen cuando veo que hay tendencia alcista, el activo promete. Solo recupero unos
@@ -1329,9 +1414,9 @@ sobre el progreso al restar la deuda consolidada en lugar de los 411:
 | Cubierto | 8,3% | **7,3%** |
 | Años | 27,2 | **27,8** |
 
+**El progreso ya lee la fuente del KPI** (implementado el 2026-09-20, `FinancePanel._deuda_inversion()`; ver arriba).
 **Queda abierto por qué `inversion.deuda` suma 411.** No es "la deuda con otro criterio" hasta que se verifique qué
-escribe esa columna y desde dónde; mientras tanto el progreso debe leer la misma fuente que el KPI, que es el saldo
-que el broker reporta. *Probable, no confirmado:* que `inversion.deuda` se escriba solo para algunos vehículos o solo
+escribe esa columna y desde dónde — mientras no se sepa, ningún consumidor nuevo debería usarla como saldo. *Probable, no confirmado:* que `inversion.deuda` se escriba solo para algunos vehículos o solo
 en el ciclo de algunas posiciones.
 
 **Y queda un hueco que el interés de margen dejó al descubierto: el costo del préstamo Crypto no entra al costo de
