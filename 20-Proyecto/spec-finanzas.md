@@ -898,6 +898,74 @@ de rescate cayó en otra categoría por regla.
 más simple de los dos: el extracto bancario trae el saldo impreso, mientras que acá hay que cruzar dos tablas de dos
 módulos distintos.
 
+#### Paso 1.6 — la infraestructura del saldo quedó en pie, la captura está bloqueada por falta de PDF (2026-09-21)
+
+Cerrado: el PDF importado **ya no se borra**. `scan_extractos()` hacía `os.remove(pdf_path)` en la rama de éxito y
+movía a `desconocidos/` solo los que fallaban, así que `PROCESADOS_DIR` estaba declarado desde el primer día y nunca
+se usó — un solo hit en todo el repo. Hoy las dos ramas archivan, y el PDF queda como única fuente de los saldos y de
+cualquier dato que el parser todavía no lee.
+
+Los archivados se renombran con la cuenta y el período que quedaron en BD para ese `file_hash` —
+`Sant-CC-ARS_2026-08.pdf`—, no con el nombre que les puso el banco. El PDF multi-cuenta de Santander (trae cuenta y
+tarjeta en el mismo archivo) cae al nombre del banco, `Santander_2026-08.pdf`, porque no hay una sola cuenta que lo
+identifique; los 36 imports de la cuenta de débito, con `period_to` en NULL, quedan como `sin-periodo`. Si la consulta
+falla se conserva el nombre original y se loguea: un nombre feo es mejor que uno inventado. Pedido del usuario en la
+misma tanda — sin esto `procesados/` se vuelve inutilizable a los tres meses.
+
+`fin_statement_imports` tiene ahora `balance_prev` y `balance_curr`, `decimal(18,2)` nullable. Van en la fila del
+extracto y no en `fin_accounts` porque el saldo cambia con cada extracto; `fin_accounts.balance` queda para el saldo
+**vigente**, el del último import, que es lo que el panel necesita y sigue en 0 en las 15 cuentas. No hizo falta tabla
+nueva: `fin_transactions.import_id` ya tiene FK hacia el import, así que la conciliación es
+`balance_prev + SUM(movimientos del import) = balance_curr`. **NULL no significa descuadre** — significa que el
+extracto no publica saldo (Binance, tarjetas) o que el import es anterior a la captura.
+
+**Bloqueado: los parsers no se pueden calibrar sin un PDF, y no queda ninguno.** Los borró el propio
+`scan_extractos()`, que es justo lo que se arregló, con lo que el arreglo llega tarde para este paso. Las coordenadas
+de columna están calibradas contra el PDF real de cada banco (`X_SALDO_MIN = 515` en BBVA) y la línea `SALDO ANTERIOR`
+**no tiene fecha**, así que su monto puede caer en la columna de saldo o en la de crédito. Escribir los cuatro parsers
+suponiendo eso garantiza reescritura. Queda `AppTest/run_saldo_probe.py` como instrumento: imprime las líneas con
+`SALDO` y las últimas del detalle con la coordenada X de cada palabra, sin tocar BD ni mover archivos.
+
+**El paso que sigue son cuatro clases, no seis.** El cierre del import está copiado nueve veces —un `SELECT id` +
+`INSERT` + `UPDATE ... status='processed'` por adaptador—, pero las cuentas con saldo real se concentran en cuatro:
+`BbvaArCuenta` (de la que hereda `BbvaArAhorro`), `SantanderAr`, `CitibankUs` y `BdvVes` (de la que hereda
+`BanescoVes`). Las cuatro tarjetas y los tres adaptadores de Binance van en NULL a propósito: la tarjeta publica el
+total del resumen, que es otro concepto, y Binance no tiene extracto con saldo.
+
+En `BbvaArCuenta` la columna de saldo **ya se recolecta** en cada línea (`cols["saldo"]`, x ≥ 515) y se descarta sin
+usarse; `SALDO ANTERIOR` está en `SKIP_MARKERS`, así que el `continue` la saltea antes de mirarla. `SALDO ACTUAL` no
+figura en los marcadores de ese adaptador, de donde se sigue —**sin confirmar**— que el resumen no lo publica y que
+`balance_curr` habrá que tomarlo del saldo de la última fila del detalle.
+
+**La cuenta de débito de Santander queda fuera de la conciliación** aunque se capture el saldo: sus 36 imports tienen
+`period_from` y `period_to` en NULL, y sin período no se sabe a qué extracto pertenece cada uno. Está inactiva, así
+que no es urgente.
+
+#### `short_name` pasó a ser obligatorio, y el 2.8 estaba mal enunciado (2026-09-21)
+
+Siete de las quince cuentas tenían `short_name` vacío y **`Visa` estaba repetido en dos** (Santander id 3 y BBVA Visa
+Signature id 9): en el panel las dos se veían igual. El `UPDATE` de las quince es el parche; la garantía es del
+schema, porque el script no es el único camino de entrada. `fin_accounts.short_name` es hoy `varchar(20) NOT NULL`
+con `UNIQUE KEY uq_short_name` y `CHECK (short_name <> '')`, y **sin `DEFAULT`**: un `INSERT` que omita la columna
+falla en vez de crear una cuenta muda. El `MODIFY` copió el tipo literal de `SHOW CREATE TABLE` y no uno inferido —
+la lección de `inversion.deuda` de la misma mañana.
+
+`AppTest/run_finanzas_setup.py` quedó alineado: declara la columna en su DDL con las tres restricciones, las diez
+cuentas del dict la traen y el `INSERT` la escribe. A propósito **no** lleva `setdefault` como `credit_limit`: una
+cuenta nueva sin `short_name` tiene que reventar con `KeyError`, no crearse muda.
+
+**El 2.8 no es "el instalador tira error 1054".** El release del hijo no corre ese script: `export_hijo.bat` genera
+`hijo_estructura.sql` con un `mysqldump --no-data` de las seis tablas `fin_*` **desde la BD viva**, así que ya se
+lleva `short_name`, `tracked_since` y las dos columnas de saldo sin tocar nada, y `hijo_datos.sql` exporta
+`fin_banks`, `fin_categories` y `fin_import_rules` — **`fin_accounts` no se exporta**. Un hijo instala Finanzas con
+bancos, categorías y reglas y **sin ninguna cuenta**, y no hay forma de darlas de alta sin entrar a MySQL. Eso es
+correcto por diseño —sus cuentas no son las del padre— y es el hueco real: falta el alta de cuentas. El error 1054 de
+`fin_categories.type` sigue existiendo y afecta al setup local del padre, no al release.
+
+Dos columnas de la BD viva no estaban en el DDL del script —`short_name` y `tracked_since`— más cuatro bancos y cinco
+cuentas que solo existen en la BD (Citi ×2, BDV, Banesco, Binance). El script describe un esquema de Finanzas que ya
+no existe; se le agregaron las dos columnas y no las cuentas, que son la parte con decisión de diseño pendiente.
+
 ------------------------------------------------------------------------
 
 ### Fase 2 — por qué reclasificar a mano no se pega
