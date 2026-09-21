@@ -1415,8 +1415,25 @@ sobre el progreso al restar la deuda consolidada en lugar de los 411:
 | Años | 27,2 | **27,8** |
 
 **El progreso ya lee la fuente del KPI** (implementado el 2026-09-20, `FinancePanel._deuda_inversion()`; ver arriba).
-**Queda abierto por qué `inversion.deuda` suma 411.** No es "la deuda con otro criterio" hasta que se verifique qué
-escribe esa columna y desde dónde — mientras no se sepa, ningún consumidor nuevo debería usarla como saldo. *Probable, no confirmado:* que `inversion.deuda` se escriba solo para algunos vehículos o solo
+**Y ya se sabe por qué `inversion.deuda` sumaba 411** (2026-09-21): es la deuda de **Binance por posición**. El
+usuario leyó el reparto del header de cada pestaña —**IB 6.462 + Binance 410**— y los 410 son el 411 de la columna. La
+escribe `update_inversion()` desde `keys["deuda"]`, y el único camino que le pone algo distinto de 0 es el de Crypto
+(`wallet["debit USDT"]`); el de Stock escribe `0` y FCI también, así que el margen de IB no figura en ninguna fila.
+No es "la deuda con otro criterio": es una deuda distinta. Queda registrado en `CLAUDE.md` § "Columnas con semántica
+propia" para que ningún consumidor nuevo la lea como saldo de la cartera.
+
+**Por qué el bloque leyó bien los 6.900 con IB caído, y qué se ajustó después.**
+`DashMain.actualizar_totales_inversiones()` refresca el KPI cada 30s y persiste el valor en `kpi_snapshot` cuando es
+> 0. Ese día solo guardaba `stock_debit`: el margen de IB sobrevivió la desconexión por el snapshot, y los 410 de
+Binance llegaron en vivo porque `Agente_LtvControl` no depende de IB. Alcanzaba, pero por dos caminos distintos, y el
+de Binance se caía en el único hueco que tiene —los primeros 300s tras arrancar la app, antes del primer ciclo del
+agente—. El 2026-09-21, a pedido del usuario y por homogeneidad, el snapshot guarda también `crypto_debit`.
+
+El criterio para creerle a un 0 sigue siendo distinto en cada mitad, y tiene que serlo: en Stock se consulta
+`DataHub.ws_stock_connected`, porque con el websocket vivo un 0 es real —no hay margen abierto— y caer al snapshot
+mostraría deuda que ya se pagó; en Crypto no hace falta bandera porque `Agente_LtvControl` corta con `return` cuando la
+API no devuelve préstamos, así que nunca escribe 0 y un 0 solo puede significar "todavía no midió". El mismo par de
+reglas vive en `FinancePanel._deuda_inversion()`, que lee la misma fuente que la barra. *Probable, no confirmado:* que `inversion.deuda` se escriba solo para algunos vehículos o solo
 en el ciclo de algunas posiciones.
 
 **Y queda un hueco que el interés de margen dejó al descubierto: el costo del préstamo Crypto no entra al costo de
