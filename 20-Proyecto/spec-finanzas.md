@@ -615,9 +615,25 @@ Tres categorías nuevas, todas `transfer`: **Liquidez FCI** (134 filas), **Compr
 **Deposito garantia alquiler** (2). La inversión real vive en `Aportes a IB` (2.450,00) y
 `Retención USDT` (2.681,97).
 
-**Invertido 2026: 9.596 → 5.132.** Julio pasa a +126,72 y agosto a +258,31. El ahorro, el costo de vida y
-el número de libertad **no se mueven**: `ahorro = ingreso − gasto` y el grupo `investment` no participa de
-ninguno de los tres.
+**Invertido: 9.596 → 5.132 sobre el total histórico de las filas, no sobre el año** — corregido el
+2026-09-21 al cruzar contra los extractos. Los 2.450 de `Aportes a IB` son las 9 filas de todos los años;
+en 2026 hay **2.250**, así que el período 2026 queda en **4.931,97** (IB 2.250 + Binance 2.681,97). El
+"antes" con ese mismo recorte está sin medir: las filas ya cambiaron de categoría, y reconstruirlo es el
+neto 2026 de las seis categorías involucradas. Julio pasa a +126,72 y agosto a +258,31 — el panel muestra
+**un mes**, no el año (`_period()` en `Class_Finance.py`), y esos dos meses son `Retención USDT` sola.
+El ahorro, el costo de vida y el número de libertad **no se mueven**: `ahorro = ingreso − gasto` y el
+grupo `investment` no participa de ninguno de los tres.
+
+**Cuadra contra los extractos en la única mitad donde puede cuadrar.** `Aportes a IB` da 2.250 en 2026
+contra 2.250 de `extractos.depositos` de `U4214563`, **mes por mes**: 400 en enero, 250 en febrero, 750 en
+mayo, 850 en junio. IB es el único vehículo donde esa columna es flujo de dinero real — sale de
+`Deposits & Withdrawals` del CSV filtrado por `Electronic Fund Transfer` (`Class_DataFrame.py:771`). En
+los otros tres significa otra cosa y el cruce no aplica: Crypto escribe las compras (`producto` con
+`codigo='O'`), BotCrypto un `0.0` fijo y FCI las compras divididas por `factor_cambio`. Es el BACKLOG 90.
+Por eso `Retención USDT` (2.681,97) **no tiene contraparte medible**, y que el extracto de `B0000001` dé
+2.698,58 no la valida: son compras, no transferencias.
+
+Dato al pasar, no un error de datos: **IB no recibe un aporte desde junio.**
 
 Por qué el FCI es `transfer` y no `investment`: el usuario intentó tenerlo en un fondo aparte y se confundía
 al regularizar —sacaba o metía donde no era—, así que dejó uno solo, y los movimientos que se ven son los de
