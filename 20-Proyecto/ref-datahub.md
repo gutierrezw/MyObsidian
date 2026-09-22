@@ -128,8 +128,19 @@ DataHub.mercado_abierto(vehiculo="Stock", con_horario=False) -> bool
   de las 16:00.
 - ⚠️ Con `con_horario=True` el watchdog **no vigila en pre-market ni after-hours**, donde IB sí
   entrega datos (5-25 msg/min medidos, contra 130-250 en sesión). Es un costo aceptado: la causa
-  de fondo —el feed muere a los 2700 s exactos de suscribirse— se ataca re-suscribiendo antes del
-  corte, no cerrando el socket.
+  de fondo —el feed muere a los 2700 s exactos de suscribirse— se ataca en el origen, no cerrando
+  el socket.
+- **Corregido el mismo día (2026-09-22): la causa de fondo no se ataca re-suscribiendo.** Arriba se
+  anotó esa salida antes de leer la documentación del gateway, y quedó mal. `RealtimeSubscription.md`
+  (en `MyPython/IBGateway/doc/`) dice que el cliente debe mandar el topic `ech` con argumento `hb`
+  —`ws.send('ech+hb')`, "at least once per minute"— para mantener viva la sesión de streaming. La
+  app nunca lo mandaba: en todo el día solo salieron `smd+` ×2829 y `sor+` ×68. Por eso el corte se
+  lleva **todos los símbolos juntos** (29-30 conids a las 16:14, cero a las 16:15:27) en vez de
+  irlos perdiendo de a uno — no es pérdida de suscripción, es la sesión que expira. Se resolvió con
+  un hilo `Ws<vehiculo>_Heartbeat` en `MyWebsocket` (`Class_customer.py`), no re-suscribiendo:
+  re-suscribir habría mandado ~40 `smd+` cada 40 min con un burst de ~130 mensajes de snapshot
+  pisando precios vivos, contra 6 bytes por minuto. **Ojo:** el `{"topic":"system","hb":...}` que
+  llega cada 10 s es el heartbeat que manda el *gateway*, documentado aparte; no reemplaza a `ech+hb`.
 - **No usa `manager_sesion`** a propósito: ese flag mide *sesión de broker viva*, no *mercado
   abierto*. Si IB se cae un miércoles el fallback yfinance sigue dando precio real y la
   oportunidad es válida — gatear por sesión silenciaría de más. Además `manager_sesion` solo
