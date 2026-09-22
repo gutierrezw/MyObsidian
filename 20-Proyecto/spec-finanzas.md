@@ -898,7 +898,7 @@ de rescate cayó en otra categoría por regla.
 más simple de los dos: el extracto bancario trae el saldo impreso, mientras que acá hay que cruzar dos tablas de dos
 módulos distintos.
 
-#### Paso 1.6 — la infraestructura del saldo quedó en pie, la captura está bloqueada por falta de PDF (2026-09-21)
+#### Paso 1.6 — saldos: la infraestructura y la captura (2026-09-21 → 2026-09-22)
 
 Cerrado: el PDF importado **ya no se borra**. `scan_extractos()` hacía `os.remove(pdf_path)` en la rama de éxito y
 movía a `desconocidos/` solo los que fallaban, así que `PROCESADOS_DIR` estaba declarado desde el primer día y nunca
@@ -920,7 +920,13 @@ nueva: `fin_transactions.import_id` ya tiene FK hacia el import, así que la con
 extracto no publica saldo (Binance, tarjetas) o que el import es anterior a la captura.
 
 **Bloqueado: los parsers no se pueden calibrar sin un PDF, y no queda ninguno.** Los borró el propio
-`scan_extractos()`, que es justo lo que se arregló, con lo que el arreglo llega tarde para este paso. Las coordenadas
+`scan_extractos()`, que es justo lo que se arregló, con lo que el arreglo llega tarde para este paso.
+
+> **Revertido el 2026-09-22.** No estaba vacío: `EXTRACTOS_DIR` sale de `APPOO_TMP`, que `.vscode/launch.json`
+> apunta a `deploy\tmp`, no a `AppOO\tmp` — y ahí había **18 PDFs en `desconocidos/`**, ninguno en `procesados/`.
+> El paso 3 sigue sin material para tres de las cuatro clases de cuenta (BBVA, Santander, Citi), pero ya lo tiene
+> para `BanescoVes` (los 3 de Banesco traen `SALDO MES ANTERIOR` con importe) y para las tarjetas, que sí publican
+> saldo — ver la corrección del párrafo siguiente. Las coordenadas
 de columna están calibradas contra el PDF real de cada banco (`X_SALDO_MIN = 515` en BBVA) y la línea `SALDO ANTERIOR`
 **no tiene fecha**, así que su monto puede caer en la columna de saldo o en la de crédito. Escribir los cuatro parsers
 suponiendo eso garantiza reescritura. Queda `AppTest/run_saldo_probe.py` como instrumento: imprime las líneas con
@@ -929,17 +935,282 @@ suponiendo eso garantiza reescritura. Queda `AppTest/run_saldo_probe.py` como in
 **El paso que sigue son cuatro clases, no seis.** El cierre del import está copiado nueve veces —un `SELECT id` +
 `INSERT` + `UPDATE ... status='processed'` por adaptador—, pero las cuentas con saldo real se concentran en cuatro:
 `BbvaArCuenta` (de la que hereda `BbvaArAhorro`), `SantanderAr`, `CitibankUs` y `BdvVes` (de la que hereda
-`BanescoVes`). Las cuatro tarjetas y los tres adaptadores de Binance van en NULL a propósito: la tarjeta publica el
-total del resumen, que es otro concepto, y Binance no tiene extracto con saldo.
+`BanescoVes`). Los tres adaptadores de Binance van en NULL a propósito: no hay extracto con saldo.
+
+**Corrección del 2026-09-22: las tarjetas no van en NULL.** Acá se escribió que "la tarjeta publica el total del
+resumen, que es otro concepto". Medido sobre los resúmenes reales, publica el saldo y encima concilia:
+
+| Resumen | `balance_prev` | `balance_curr` |
+|---|---|---|
+| BBVA Visa (cierre 27-Ago-26) | `SALDO ANTERIOR 328.810,27 / 0,00` | `SALDO ACTUAL 255.102,61 / 0,88` |
+| Santander Visa y Amex | `SALDO ANTERIOR 137.115,68 / 22,99` | **NULL** — el recuadro `SALDO ACTUAL $ U$S` de la copia informativa viene sin importe |
+
+La conciliación del BBVA cierra exacta: `0` (saldo anterior cancelado con el pago de 328.810,27) `+ TOTAL CONSUMOS
+254.702,92 + DB.RG 399,69 = 255.102,61`. Las dos líneas están hoy en `SKIP_MARKERS` y se descartan.
+
+> **Revertido el 2026-09-22 — el `balance_curr` de las tarjetas Santander no es NULL.** El recuadro sin importe de la
+> copia informativa existe, pero no es el único lugar donde aparece la etiqueta: el saldo de cierre está en la
+> **última hoja**, en la línea que lleva `TNA` y `TEM` junto a `SALDO ACTUAL`. Capturado en **15 de 15** resúmenes y
+> con la cadena entera cerrada (tabla en el paso 3, más abajo). La conclusión anterior salió de mirar solo la hoja 1.
+
+Un detalle de implementación que el párrafo anterior no podía anticipar: en el BBVA el importe del saldo está en
+**x = 444**, por debajo de `X_PESOS_MIN = 450`, así que `_classify_word` lo mandaría a la columna de cupón. El saldo
+se lee por regex de la línea, no por columna.
 
 En `BbvaArCuenta` la columna de saldo **ya se recolecta** en cada línea (`cols["saldo"]`, x ≥ 515) y se descarta sin
 usarse; `SALDO ANTERIOR` está en `SKIP_MARKERS`, así que el `continue` la saltea antes de mirarla. `SALDO ACTUAL` no
 figura en los marcadores de ese adaptador, de donde se sigue —**sin confirmar**— que el resumen no lo publica y que
 `balance_curr` habrá que tomarlo del saldo de la última fila del detalle.
 
+> **Revertido el 2026-09-22.** Sí lo publica: la redacción en la cuenta no es `SALDO ACTUAL` sino **`SALDO AL 28 DE
+> ABRIL`**, con el día y el mes del cierre. Por eso no figuraba en los marcadores, y por eso la sospecha apuntaba a la
+> última fila del detalle, que no hizo falta. Medido en los tres extractos de caja de ahorro; detalle en el paso 3.
+
 **La cuenta de débito de Santander queda fuera de la conciliación** aunque se capture el saldo: sus 36 imports tienen
 `period_from` y `period_to` en NULL, y sin período no se sabe a qué extracto pertenece cada uno. Está inactiva, así
 que no es urgente.
+
+#### La tabla de imports tenía 99 filas que ningún extracto trajo (2026-09-22)
+
+Pedido del usuario, con el motivo: *"si arreglá eso, sino con el tiempo menos se entiende"*. `fin_statement_imports` es
+donde uno va a mirar *"¿cargué el resumen de agosto?"*, y de las ~100 filas de las dos tarjetas de Santander **60 no
+eran nada**: `status='processed'`, contadores en 0, período NULL, cero transacciones. Un PDF de AMEX generaba una fila
+`santander_visa`.
+
+**Los dos adaptadores multi-sección creaban la fila antes de saber si el PDF traía esa sección.** `SantanderAr`
+(cuenta ARS, cuenta USD, visa, amex, débito) y `CitibankUs` (checking, savings) tienen el mismo bloque, copiado: el
+primer bucle recorre `SECTION_NAME_MAP` e inserta el import de toda sección que tenga cuenta en `fin_accounts`. La
+única guarda era sobre el **total** del PDF (`if not stats["rows_found"]`), que no dice nada de la sección. Después el
+segundo bucle la marcaba `processed` con `row_count=0` y el período de `MIN(date)` sobre cero transacciones, es decir
+NULL. Los adaptadores de una sola cuenta nunca tuvieron el problema: cortan con `if not raw_rows: return stats` antes
+del `INSERT`.
+
+El arreglo es un `continue` por sección sin filas, en las dos clases. Nada más cambia: el PDF sigue registrado como
+importado en las secciones que sí cargaron, así que `uq_import (file_hash, section)` sigue frenando el reproceso.
+
+**Medido sobre toda la tabla, no solo las tarjetas: 187 filas con período NULL, y son dos poblaciones distintas.**
+Separarlas era el punto — la mitad es un defecto y la otra mitad es un hecho:
+
+| | Filas | Qué son | Decisión |
+|---|---|---|---|
+| `row_count = 0`, `processed_count = 0` | **99** | la sección no venía en el PDF | borradas |
+| `row_count > 0`, `processed_count = 0` | **88** | el PDF sí traía filas y **todas ya estaban en BD** | se conservan |
+
+Las 88 son reintentos reales de cargar un extracto ya cargado, y son el registro de que ese PDF pasó. Su período queda
+NULL por el mismo `MIN(date)`: mide las transacciones **de ese import**, y si todas se saltearon no hay ninguna. Que
+quede NULL es correcto; lo que estaba mal era no poder distinguirlas de las 99.
+
+Las 99 se reparten por sección así: `santander_debito` 36, `santander_cuenta_usd` 18, `santander_cuenta_ars` 14,
+`santander_visa` 14, `santander_amex` 14, `citi_checking` 2, `bdv_cc` 1. El `DELETE` lleva `status = 'processed'` para
+no pisar un import en vuelo, y dos `NOT EXISTS` redundantes contra `fin_transactions` y `fin_card_cycles` — las dos
+únicas tablas que apuntan a un import. El chequeo previo de filas candidatas con algo colgando dio **vacío**.
+Ejecutado el 2026-09-22: **99 filas**, el número exacto que había medido el control.
+
+> **Las 36 de la cuenta de débito no eran lo que decía este documento.** Arriba quedó escrito que sus 36 imports con
+> período NULL la dejaban fuera de la conciliación por ser datos sin fecha. Medido: **no tienen una sola
+> transacción**. Eran las mismas filas fantasma del defecto de arriba. La cuenta sigue fuera de la conciliación, pero
+> porque está inactiva y sin movimiento cargado, no porque le falte el período.
+
+#### Paso 3 del 1.6 — los parsers capturan el saldo (2026-09-22)
+
+Una sola función de módulo, `parse_balances(lines, x_max)`, al lado de `parse_installments_due()`. Devuelve
+`(balance_prev, balance_curr)` buscando dos etiquetas: `SALDO ANTERIOR` y, para el cierre, `SALDO ACTUAL` **o**
+`SALDO AL <dd> DE <MES>` — las dos redacciones que usan los extractos reales.
+
+**Lee por regex de la línea, no por columna.** El párrafo anterior lo anticipó desde el lado del BBVA (el importe cae
+en `x = 444`, por debajo del umbral de la columna de pesos) y la medición lo confirma desde el otro lado: en la caja de
+ahorro el saldo está en **x = 521**, que `_classify_word` manda a `saldo`, mientras que en el resumen de tarjeta la
+misma etiqueta aparece dos veces en la misma línea, una por moneda. Una regla por columna necesitaría calibración
+distinta por banco y por producto; la etiqueta es estable en los cuatro formatos medidos.
+
+`x_max` resuelve las dos monedas: se toma el primer importe a la izquierda de ese x. Para la tarjeta vale 500 —el mismo
+corte que `_classify_tc` ya usa entre pesos y dólares—, así que **se guarda el saldo en pesos y el de dólares no se
+persiste**: la tarjeta es una sola fila en `fin_accounts` y no hay dónde ponerlo. Si hiciera falta, son dos cuentas
+separadas, como ya existen para la cuenta ARS y la USD de Santander, no una columna más. La función también quita los
+guiones bajos antes de mirar la línea, por lo mismo que `parse_installments_due`: el Visa los intercala entre los
+dígitos del importe.
+
+**Dónde quedó enganchada.** Dos de las cinco clases que cierran un import con saldo real:
+
+| Clase | De dónde sale el saldo | Estado |
+|---|---|---|
+| `BbvaArCuenta` (y `BbvaArAhorro`, que hereda) | las líneas que `_extract_rows()` ya recorre — sin reabrir el PDF | verificado |
+| `SantanderArTarjetaResumen` | `_extract_balances()`: hoja 1 + última hoja | verificado, 15/15 |
+| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all` | **sin material** |
+| `CitibankUs` | — | **sin material** |
+| `BdvVes` (y `BanescoVes`) | `SALDO MES ANTERIOR`, con importe | **sin implementar** |
+
+Las tres últimas siguen escribiendo NULL, que es la semántica ya definida: NULL es *el extracto no publica saldo o el
+import es anterior a la captura*, nunca un descuadre. No se escriben a ciegas — `SantanderAr` además tiene que asociar
+cada saldo a su sección, que es trabajo distinto del de los otros dos.
+
+**Tarjetas — la cadena cierra sola.** El `balance_curr` de cada resumen es el `balance_prev` del siguiente, en las dos
+tarjetas y sin un hueco:
+
+| Visa 0925 | | Amex 9541 | |
+|---|---|---|---|
+| 347.708,66 → | 501.782,81 | 202.835,89 → | 205.801,10 |
+| 501.782,81 → | 533.299,51 | 205.801,10 → | 232.260,89 |
+| 533.299,51 → | 447.934,00 | 232.260,89 → | 180.420,40 |
+| 447.934,00 → | 397.117,02 | 180.420,40 → | 61.963,25 |
+| 397.117,02 → | 458.117,74 | 61.963,25 → | 80.537,13 |
+| 458.117,74 → | 462.099,26 | 80.537,13 → | 137.115,68 |
+| 462.099,26 → | 323.168,54 | 137.115,68 → | 258.140,96 |
+
+Ocho PDF de Visa para siete eslabones: dos son el mismo cierre (19-Mar-26) con `file_hash` distinto, el duplicado ya
+conocido. El Amex trae además saldo en dólares (22,99 / 27,99 / 32,99 / 49,99) que no se guarda; el Visa lo trae en
+0,00.
+
+**Caja de ahorro — la conciliación del paso 4 ya cuadra, sin haber escrito el paso 4.** Los tres extractos encadenan
+entre meses y encima la aritmética cierra exacta contra los totales de movimientos que publica el propio PDF:
+
+| Extracto | `balance_prev` | movimientos | `balance_curr` | |
+|---|---|---|---|---|
+| Abr-2026 | 2.795.199,26 | −5.919.670,67 +7.286.939,18 | 4.162.467,77 | exacto |
+| May-2026 | **4.162.467,77** | −15.312.055,12 +13.054.047,42 | 1.904.460,07 | exacto |
+| Jun-2026 | **1.904.460,07** | −9.714.622,79 +9.559.865,07 | 1.749.702,35 | exacto |
+
+La línea `TOTAL SALDOS DISPONIBLES` del mismo PDF no contamina: dice "SALDOS", no `SALDO ANTERIOR` ni `SALDO AL`.
+
+**Esos tres extractos son de BBVA, no de Santander.** El usuario los nombró como caja de ahorro de Santander; el PDF
+dice `CBU 0170…` (017 es BBVA Argentina) y trae `REINTEGRO PROMO BBVA`. La cuenta es `196-009369/5`, que
+`DETECTION_RULES` mapea a `bbva_ahorro` — correctamente, y con la regla `("Santander", "santander", None)` por delante
+en la lista, así que el PDF no contiene la palabra. Importa porque decide en qué adaptador va el código: el saldo de la
+caja de ahorro quedó en `BbvaArCuenta`, y el extracto de Santander que falta es el del PDF unificado.
+
+> **Lo que el paso 3 no arregla hacia atrás.** El saldo se escribe en el `UPDATE` que cierra el import, así que los
+> imports ya cargados se quedan en NULL: `uq_import (file_hash, section)` frena el reprocesamiento del mismo PDF, y el
+> PDF de casi todos lo borró la versión de `scan_extractos()` anterior al paso 1. Los tres extractos de caja de ahorro
+> medidos acá entraron así —el usuario los dejó en `extractos/`, la app los procesó con el código viejo y los borró—,
+> y por eso ese camino se verificó contra las líneas medidas antes de que desaparecieran, no ejecutando el parser
+> entero. Tienen saldo, de acá en adelante, los extractos nuevos y los quince resúmenes que siguen en `desconocidos/`.
+> Para el resto hay que volver a bajar el PDF del homebanking.
+>
+> **Revertido el 2026-09-22 — re-soltar el PDF sí completa el saldo.** `uq_import` frena el alta, no al adaptador:
+> `BbvaArTarjeta.load()` ya tenía una rama que sigue trabajando cuando el PDF está importado. Las tres clases con
+> saldo completan hoy por `_fill_missing_balances()`. Ver "El saldo de la tarjeta BBVA, y por qué re-soltar el PDF
+> alcanza". Sigue siendo cierto lo demás: hay que volver a bajar el PDF del homebanking.
+
+#### El resumen de tarjeta cambió de formato en agosto de 2026, y el parser sigue leyendo solo el nuevo (2026-09-22)
+
+Pedido del usuario: *"revisa el extracto de amex, cambia de formato en agosto, creo que los anteriores no te van a
+servir"*. El hecho es cierto y la conclusión no: los quince resúmenes anteriores se leen enteros.
+
+`SantanderArTarjetaResumen` (escrito el 2026-09-16, contra los resúmenes que había entonces) buscaba el ciclo en
+**una línea con exactamente seis fechas `dd/mm/yy`** de la hoja 1. Los resúmenes de 2025 y del primer semestre de
+2026 no tienen ninguna: **cero líneas con tres o más fechas `dd/mm/yy`** en los quince. Traen el ciclo en tres
+líneas, con el mes en español y el año del cierre pegado a la etiqueta siguiente:
+
+```
+1824 LANUS OESTE   CIERRE 25 Jun 26VENCIMIENTO 07 Jul 26
+Cierre Ant.: 21 May 26      Vto. Ant.: 02 Jun 26
+Prox.Cierre: 23 Jul 26      Prox.Vto.: 04 Ago 26
+```
+
+Como `_extract_cycle()` devolvía `None`, `load()` salía con `rows_found = 0` y `process_pdf()` los mandaba a
+`desconocidos/` **sin error**: el log dice "reconocido pero sin filas extraídas" y la detección por contenido había
+funcionado bien (`1067995586` → Visa, `1068053384` → Amex). Los quince estaban identificados y descartados.
+
+**El soporte del formato viejo no está en el parser.** Decisión del usuario: *"leelo de manera temporal ya que el
+formato que queda es de agosto"*. El formato anterior no vuelve a aparecer nunca — todo resumen futuro trae las seis
+fechas —, así que dejarlo en `SantanderArTarjetaResumen` sería cargar para siempre una rama que corre una vez. Vive en
+`AppTest/run_carga_resumenes_viejos.py`, que **subclasea el adaptador y solo reemplaza `_extract_cycle()`**: escribe
+por el `load()` real, así que respeta `uq_import`, el `INSERT IGNORE` de `fin_card_cycles` y el recálculo de
+`billing_date`. `Class_Finance.py` quedó sin un solo cambio. Cuando los quince estén cargados, el script se borra.
+
+El script se comitea igual que cualquier otro de `AppTest/` —el directorio está versionado, 59 archivos— y se borra
+en su propio commit cuando los quince estén cargados. Queda el registro de cómo se hizo la carga; el hallazgo se
+documenta acá con el detalle suficiente para rehacerlo si hiciera falta.
+
+Lo que el script hace distinto del parser, y por qué:
+
+- **Lee cada etiqueta de la primera línea donde aparece.** `CIERRE` y `VENCIMIENTO` se buscan en mayúsculas a
+  propósito: en minúsculas colisionan con `Prox.Cierre:` y con `Vto. Ant.:`, que son otras dos fechas. La fecha se
+  toma después de la etiqueta, no al principio de la línea, porque las tres líneas llevan dos fechas cada una.
+- **Lee las dos primeras hojas**, porque las cuotas a vencer están en la hoja 2. **Una hoja a la vez, nunca
+  concatenadas**: las coordenadas `top` arrancan de cero en cada hoja, así que un `lines` concatenado cruza la fila
+  de meses de una con los importes de la otra (medido: da un falso positivo de una cuota en el Visa de diciembre).
+- **Quita los guiones bajos del importe.** El Visa los intercala entre los dígitos: `_$_7_7_._8_5_0_,_8_5_` es una
+  sola palabra para pdfplumber. Se limpian sobre una copia de las palabras y se llama al `parse_installments_due()`
+  de producción, sin duplicar su lógica. Sin esto, diez de los quince tenían la fila de meses y ningún importe
+  debajo, y parecía que no había cuotas.
+- **Chequea el cierre contra `fin_card_cycles` antes de insertar.** Dos de los PDF son el mismo resumen (cierre
+  19-Mar-26) con distinto `file_hash`, así que `uq_import` no los frena. No se confía en el `INSERT IGNORE` de
+  `_save_card_cycle()`: no está verificado que `fin_card_cycles` tenga un UNIQUE sobre `(account_id, closing_date)`,
+  y sin él ese `IGNORE` no atrapa nada.
+
+Resultado medido en modo lectura sobre los dieciocho PDF de `desconocidos/`:
+
+| | Visa (0925) | Amex (9541) | Banesco |
+|---|---|---|---|
+| PDF | 8 (uno duplicado: cierre 19-Mar-26) | 7 | 3 |
+| Ciclo extraído | 8/8 | 7/7 | — omitidos, no son tarjeta |
+| Cuotas a vencer | 6/8 | 5/7 | — |
+
+Los cuatro sin cuotas no son un fallo del parser: tres Amex (feb, mar, abr 2026) **no traen el bloque** "Cuotas a
+vencer" en ninguna hoja, y el Visa de diciembre 2025 lo trae con los seis meses y **sin la fila de importes** — 16
+caracteres en la franja, `SALDO ACTUAL$U$S`, nada más. La serie de cierres queda completa y encadenada de
+**20-Nov-25 a 25-Jun-26** en las dos tarjetas: el `prev_closing` de cada resumen es el `closing` del anterior.
+
+Importa más allá del ciclo: `fin_card_cycles` es lo que `_set_billing_dates()` usa para decidir en qué resumen se
+cobra cada cuota. Sin estos quince, las cuotas del primer semestre caen en el mes de la compra y el gasto de ese mes
+queda inflado — el mismo problema que `billing_date` existe para resolver, en el tramo donde todavía no había ciclo.
+
+> **Abierto, no medido:** en el formato de agosto las cuotas a vencer podrían estar también en la hoja 2, y el parser
+> de producción lee solo `pages[0]`. No hay ningún resumen del formato nuevo en disco para verificarlo — los borraba
+> `scan_extractos()`. Se resuelve mirando `fin_card_installments_due` de los imports de agosto y septiembre, o con el
+> próximo resumen que llegue. Si estuvieran en la hoja 2, el parser nunca leyó una cuota a vencer.
+
+#### El saldo de la tarjeta BBVA, y por qué re-soltar el PDF alcanza (2026-09-22)
+
+Dos huecos del paso 3, encontrados al contestar qué meses de BBVA hay que soltar.
+
+**1. `BbvaArTarjeta` había quedado afuera.** El enganche del paso 3 cubrió `BbvaArCuenta` (con `BbvaArAhorro`, que
+hereda) y `SantanderArTarjetaResumen`; la tarjeta BBVA —`bbva_tc`, dieciséis de los veinticinco imports de BBVA— no.
+Era el caso ya medido más arriba en este doc (`SALDO ANTERIOR 328.810,27`, `SALDO ACTUAL 255.102,61`, conciliación
+exacta), así que el hueco era solo de código.
+
+Captura con `x_max = X_DOLARES_MIN` (530): el resumen trae las dos monedas en la misma línea y el saldo en dólares no
+tiene dónde ir, porque la tarjeta es una sola cuenta en `fin_accounts`. El límite es defensa, no mecanismo — las
+palabras vienen ordenadas por `x0`, así que el primer importe ya es el de pesos. Si el de pesos cayera pasado 530
+devuelve NULL, que es la respuesta correcta: NULL es "no publica saldo", nunca un descuadre.
+
+> **Verificado solo en parte.** No hay ningún PDF de BBVA en disco (`desconocidos/` tiene dieciocho: quince de
+> Santander y tres de Banesco), así que el reparto `prev`/`curr` se probó sobre las líneas transcriptas en este doc,
+> con el `x0` **supuesto** según las franjas de columna de la clase. Falta confirmar la coordenada real, y la confirma
+> `AppTest/run_saldo_probe.py` sobre un resumen cualquiera antes de soltar los dieciséis.
+
+**`AppTest/run_saldo_probe.py` no existía.** Este doc lo citaba dos veces como instrumento disponible y
+`MEMORY.md` como el paso que desbloquea el 1.6; nunca se escribió. Creado el 2026-09-22: por cada PDF imprime el
+adaptador detectado, las líneas que mencionan `SALDO` con la coordenada X de cada importe y lo que devolvería
+`parse_balances()` con el `x_max` de ese adaptador. Avisa en dos casos —cuando el PDF publica saldo y el adaptador
+todavía no lo guarda, y cuando leer solo la hoja 1 y la última da otro resultado que leerlas todas, porque el
+adaptador de tarjeta lee solo esas dos. Verificado contra un resumen Santander: `balance_prev 501.782,81` de la
+hoja 1 y `balance_curr 533.299,51` de la línea con `TNA`/`TEM` en la hoja 7, con el de dólares (`0,00@x559`)
+quedando afuera por el `x_max` de 500.
+
+**2. `uq_import` no era el bloqueo que parecía.** Se documentó que un extracto ya importado no puede aportar el saldo
+porque el alta no se repite. Es verdad del alta y falso del adaptador: `BbvaArTarjeta.load()` ya tenía una rama que
+**sigue trabajando** cuando el PDF está importado —graba el ciclo, con el comentario "los resúmenes cargados antes de
+existir `fin_card_cycles` se recuperan re-soltándolos"—. El saldo es el mismo caso: una columna que no existía cuando
+se cargaron.
+
+Las otras dos clases salían de esa rama con `cursor.close(); return stats`. Las tres completan hoy por
+`_fill_missing_balances()`, que escribe con `COALESCE`: rellena lo que falta y **nunca sobreescribe lo cargado**, así
+que volver a soltar un extracto es idempotente.
+
+**Eso reemplaza el script de relleno por `file_hash` que se había ofrecido.** No hace falta: el camino es el de
+siempre —soltar el PDF en `extractos/`— y sirve igual para los meses ya importados y para los que faltan. Un script
+aparte habría sido un parche externo al import, con la lógica del saldo escrita dos veces y sin garantía de que el
+próximo camino de entrada la respete.
+
+**Estado de BBVA al cierre del día.** Los veinticinco imports de las tres secciones (`bbva_ahorro`, `bbva_cuenta`,
+`bbva_tc`) están **todos** con `balance_prev` y `balance_curr` en NULL: ninguno se cargó con el código nuevo. Se
+llenan re-soltando los PDF. Los meses que además no tienen import son la caja de ahorro **2026-07** —septiembre está
+parcial, `period_to` 14-09—, la Visa **2026-06** y la Master **2026-09**.
+
+Dos rarezas anotadas sin tocar: el import 78 (enero, cuenta `196-009369/5`) entró con sección `bbva_cuenta` en vez de
+`bbva_ahorro`, y la Visa tiene **dos julios** — el import 183 con `period_to` 01-jul y el 336 con 28-jul.
 
 #### `short_name` pasó a ser obligatorio, y el 2.8 estaba mal enunciado (2026-09-21)
 
