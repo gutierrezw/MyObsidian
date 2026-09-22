@@ -107,15 +107,29 @@ DataHub.gains_config(vehiculo="Stock", bloque="gains_capture") -> {"min_ganancia
   `get_top_sell`). Ver [[design-gains-capture]] → "Umbrales".
 - Caché: `DataHub._params_vehiculo` (class var, dict por vehículo).
 
-#### Calendario de mercado — `DataHub.mercado_abierto()` (2026-08-22)
+#### Calendario de mercado — `DataHub.mercado_abierto()` (2026-08-22, `con_horario` 2026-09-22)
 
 ```python
-DataHub.mercado_abierto(vehiculo="Stock") -> bool
+DataHub.mercado_abierto(vehiculo="Stock", con_horario=False) -> bool
 ```
 
-- `Crypto` / `BotCrypto` → siempre `True` (24x7). El resto (Stock, BBVA.ARS, SANT.ARS) →
-  `datetime.now().weekday() < 5`.
+- `Crypto` / `BotCrypto` → siempre `True` (24x7), con o sin `con_horario`. El resto (Stock,
+  BBVA.ARS, SANT.ARS) → `datetime.now().weekday() < 5`.
 - Lista de excepciones en la class var `DataHub.MERCADO_24X7`.
+- `con_horario=True` exige además **sesión regular, 09:30-16:00 hora de NY**. La comparación se
+  hace en `America/New_York`, no en hora local: así el horario de verano corre la franja solo
+  (10:30-17:00 ART en septiembre, 11:30-18:00 en diciembre) y no hay que tocar nada en marzo y
+  noviembre. El default `False` deja intactos los consumidores previos.
+- Consumidor de `con_horario=True`: el **watchdog del websocket de Stock** (`websocket_stream`
+  en `DashMain.py`). Cierra el socket tras 300 s sin mensajes `smd+`, y fuera de sesión eso es
+  siempre un falso positivo — medido el 2026-09-22: **57 reconexiones entre 00:49 y 05:49** sobre
+  un socket sano, cuyos heartbeats (`{"topic":"system","hb":...}`) nunca se cortaron. El horario
+  se consulta **dos veces**, al tomar el contador y antes de cerrar, para que no cierre a caballo
+  de las 16:00.
+- ⚠️ Con `con_horario=True` el watchdog **no vigila en pre-market ni after-hours**, donde IB sí
+  entrega datos (5-25 msg/min medidos, contra 130-250 en sesión). Es un costo aceptado: la causa
+  de fondo —el feed muere a los 2700 s exactos de suscribirse— se ataca re-suscribiendo antes del
+  corte, no cerrando el socket.
 - **No usa `manager_sesion`** a propósito: ese flag mide *sesión de broker viva*, no *mercado
   abierto*. Si IB se cae un miércoles el fallback yfinance sigue dando precio real y la
   oportunidad es válida — gatear por sesión silenciaría de más. Además `manager_sesion` solo
