@@ -192,7 +192,7 @@ vehículo. La `categoriaActivo` que abre el gate se resuelve una vez antes del l
 `inversion.categoriaActivo`, que ya viene en `positions` sin query extra. El loop además filtra
 `get_info_symbols_gain()` por `vehiculo`, así los símbolos de otros vehículos no entran.
 
-Un vehículo sin rama en `gains_capture_build_trama_sell()` —ver
+Un vehículo sin rama en `build_trama_sell()` —ver
 `DataHub.gains_capture_vehiculos_trama`, hoy `("Stock", "Crypto")`— deja el candidato en el log como
 `candidato en observacion` y corta **antes** de la evaluación Claude y antes de la propuesta por
 Telegram. La trama se arma antes del gate de modo justamente para eso: proponer un `/ok_SYMBOL` que
@@ -200,7 +200,9 @@ después no puede ejecutarse sería peor que no proponer.
 
 **Trama Crypto (2026-08-23).** LIMIT SELL GTC contra Binance, con `price` y `quantity` pasados por
 `quantiza_precio`/`quantiza_qty`; sin `conid` ni `intent`, igual que la rama Crypto de
-`preservation_build_trama()`. Los textos de precio usan `DataHub.format_precio()`, que saca los
+Preservation — desde el 2026-09-22 es literalmente la misma rama, ver [[design-preservation]] §
+"Una sola trama de venta para los dos agentes". Los textos de precio usan
+`DataHub.format_precio()`, que saca los
 decimales del mismo `tickSize` — antes iban con `:.2f` y un par barato se leía `$0.00` en la
 propuesta de Telegram.
 

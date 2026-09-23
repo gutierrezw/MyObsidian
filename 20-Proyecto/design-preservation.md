@@ -1107,7 +1107,7 @@ las caídas que este agente ataja.
 
 1. **El precio ya cruzó la base** (`last < stop_calculado`). La base queda encima del mercado y un STOP
    de venta ahí dispara en el acto o lo rechaza el broker. El techo es lo único que mantiene la orden
-   debajo del precio: ni el resto de `_preservation_run_vehiculo()` ni `preservation_build_trama()`
+   debajo del precio: ni el resto de `_preservation_run_vehiculo()` ni `build_trama_sell()`
    comparan el stop contra `last`.
 2. **La base está debajo del precio pero a menos de M ATR.** El techo la baja para dejarle M ATR de aire.
    Es elección de diseño: sin eso el stop queda pegado al precio.
@@ -1173,6 +1173,61 @@ sin cambios; Stock sin tocar. Rige al reiniciar la app, por el mismo caché de `
 
 Vale la misma salvedad del § anterior: `run_booktrading_roi.py` no puede validarlo porque mide ventas
 realizadas y Preservation nunca vendió.
+
+### Una sola trama de venta para los dos agentes (2026-09-22)
+
+`preservation_build_trama()` y `gains_capture_build_trama_sell()` se unificaron en
+`DataHub.build_trama_sell(vehiculo, account, symbol, conid, qty, price, intent, stop_price=None)`.
+Con `stop_price` arma stop-limit, sin el limit. Las dos hacian lo mismo —resolver el vehiculo, pedir
+el `hash_id`, cuantizar y devolver el dict— y divergian solo en seis valores, que ahora salen de la
+tabla `DataHub._TRAMA_SELL` indexada por `intent`:
+
+| intent | recomendado | tipo | subtipo | tif |
+|---|---|---|---|---|
+| `PRESERV` | `PRESERVATION_STOP` | `STP` | `LMT` | `GTC` |
+| `GAINS` | `GAINS_CAPTURE` | `LMT` | `SELL` | `DAY` |
+
+**Esos tres primeros no son etiquetas: entran al md5 de `generar_hash_id()`**
+(`f"{account}_{symbol}_{option}_{date}_{tipo}_{subtipo}_{recomendado}"`, `Modulos_Mysql.py:5088`), que
+es la identidad de la orden frente a `oportunidadesbuysell`. Cambiar uno rompe el cruce, y por eso
+salen de una tabla y no de un calculo. El `tif` difiere a proposito: un stop tiene que sobrevivir el
+dia, una toma de ganancia no.
+
+**El precio entra crudo y se cuantiza una sola vez, adentro.** `quantiza_precio()` **no es
+idempotente** — hace `round(precio - (precio % tick_size), decimals)`, asi que cuantizar dos veces
+baja un tick. Medido sobre 8 casos representativos, 3 cambian en la segunda pasada: `0.4321` →
+`0.432` → `0.4319`, `3.3` → `3.29` → `3.28`, `65432.1` → `65432.0` → `65431.9`. Por eso el llamador
+de Preservation pasa `stop_final * (1 - stop_limit_pct)` sin tocar y el constructor resuelve tambien
+el caso del tick grueso (§ "El stop de Crypto no protegia"), que es donde se conoce la grilla del
+vehiculo.
+
+**Verificado antes de reiniciar la app** con `AppTest/run_diff_trama_sell.py`, que reconstruye las dos
+funciones viejas literal y las compara campo por campo contra la nueva sin mandar nada: 9 casos
+—Stock y Crypto de los dos agentes, `stop_limit_pct` al 1% y al 0,5%, tick fino y tick grueso, dos
+vehiculos sin rama y un `intent` inexistente— todos identicos, **incluido el `hash_id_Op`**.
+
+Queda sin unificar el paso siguiente, juntar esto con `format_orden()` (la "clase unica"), y no es
+cosmetico: la rama Crypto de `format_orden()` **no cuantiza** —Binance rechazaria por tick size— y
+tiene un efecto lateral (`crypto_earn_rescate`), y su limite de STP LMT sale del widget Tkinter
+`self.stp_buf` con un fallback fijo del 2%, asi que migrar Preservation ahi revertiria la correccion
+del 2026-09-07 que hizo configurable `stop_limit_pct`.
+
+### `outsideRTH` deja de depender de quien armo la trama (2026-09-22)
+
+El flag de horario extendido existia solo en `format_orden()` (`Class_customer.py`), el camino de la
+UI y de Oportunidades. Los dos agentes no lo mandaban, asi que sus ordenes quedaban con el default
+que aplicara IB — la misma orden salia distinta segun que camino la construyo.
+
+Operar fuera de rueda es politica del sistema, no de cada constructor, y **`place_OrderStock()` es el
+unico punto del proyecto donde se llama `IClient.place_order()`**, asi que el default se inyecta ahi
+con `keys.setdefault("outsideRTH", True)`, reusando el patron con el que ya se inyecta `orderRef`.
+`setdefault` no pisa una trama que lo fije a proposito.
+
+**Efecto pendiente de decision: el STOP de Preservation ahora hereda `True`.** Es un cambio de
+comportamiento sobre ordenes reales, no una normalizacion. Un `STP LMT` habilitado fuera de rueda
+puede dispararse contra un spike de pre-market con libro fino y ejecutar mal; deshabilitado, no cubre
+una caida que arranque de madrugada. Si se decide volver al comportamiento anterior, la rama
+`PRESERV` de `build_trama_sell()` fija `outsideRTH: False` explicito y el `setdefault` no lo toca.
 
 ### Lo que falta antes de sacar el DRY-RUN
 
