@@ -237,7 +237,7 @@ de menos deja la orden sin entrar.
 **Rechazo del broker sin excepción (2026-08-23).** `place_OrderCrypto` devuelve `{}, {}, {}` ante un
 rechazo, que vuelve como `{"values": {}, "status": "No Submit"}` — sin excepción. El código marcaba
 igual `estado="escalon_pendiente"`, que **no expira** (a diferencia de `pendiente_autorizacion`, que
-se vence a los 30 min), así que el símbolo quedaba parkeado para siempre esperando un fill
+se vence solo), así que el símbolo quedaba parkeado para siempre esperando un fill
 inexistente. Ahora, si no hay `order_id`, se loguea, se avisa por Telegram y se deja el estado
 intacto para reintentar. En el handler `/ok_SYMBOL` la propuesta sigue pendiente y se puede
 reintentar. Aplica a los dos vehículos.
@@ -529,7 +529,10 @@ bloque `gains_capture` de BD es ignorado.
 3. `gains_capture_state[symbol]` → `estado: "pendiente_autorizacion"`, guarda la propuesta completa (`escenario`, `qty`, `lmt_price`, `conid`, `account`, `det`) en `pendiente`.
 4. Botón **Ejecutar** o `/ok_<SYMBOL>` → `_gains_capture_aprobar(symbol)` → coloca la orden → flujo normal de fill
 5. Botón **Diferir** o `/no_<SYMBOL>` → `_gains_capture_rechazar(symbol)` → `estado` vuelve a `"normal"`, `pendiente: None` — no hay omisión de 6h como decía el diseño original, se re-evalúa en el próximo ciclo (30 min) sin restricción especial
-6. **Sin respuesta en 30 minutos → propuesta cancelada** (`elapsed > 1800`, coincide con el diseño)
+6. **Sin respuesta en 4 horas → propuesta cancelada** (`elapsed > GC_PENDIENTE_TTL`). Hasta el
+   2026-09-22 eran 30 minutos (`1800`, y así coincidía con el diseño original), pero ese valor era
+   idéntico al intervalo del agente y hacía que la propuesta se recreara entera en cada vuelta —
+   ver *"La propuesta se refresca, no se recrea"* más abajo
    y **el mensaje se borra del chat**: sus botones ya no ejecutan nada (el `pendiente_id` dejó de
    coincidir), así que dejarlo ahí solo confunde. Dos caminos, los dos por `hash_id = gc_{symbol}`:
    - Si viene una propuesta nueva del mismo símbolo, la reemplaza — es el mismo mecanismo
@@ -558,9 +561,71 @@ bloque `gains_capture` de BD es ignorado.
    `gains_capture_state` completo: no filtra por vehículo (el vencimiento es temporal, no depende
    de quién lo detecte) y trata un pendiente sin `pendiente_ts` como vencido — no hay forma de
    validarlo y sus botones son exactamente el caso huérfano. El TTL pasó a la constante de módulo
-   `GC_PENDIENTE_TTL`. Adentro del loop queda solo el `continue`: lo que sigue pendiente ahí está
-   vigente. Como `read_json_tmp` carga el estado al arranque, cualquier pendiente heredado de una
-   corrida anterior se vence en la primera pasada.
+   `GC_PENDIENTE_TTL`. Como `read_json_tmp` carga el estado al arranque, cualquier pendiente
+   heredado de una corrida anterior se vence en la primera pasada.
+
+   Adentro del loop quedaba solo un `continue` —lo que sigue pendiente ahí está vigente—, y eso
+   dejó de valer el 2026-09-22: hoy ese bloque refresca la propuesta en vez de saltearla (ver
+   abajo). El barrido por reloj no cambió.
+
+   **La propuesta se refresca, no se recrea (2026-09-22).** `GC_PENDIENTE_TTL` valía `1800`,
+   exactamente el `@wait_rate(1800)` del agente, así que toda propuesta sin atender vencía justo en
+   la vuelta siguiente: `_gains_capture_expirar_pendientes()` corre al inicio de
+   `_gains_capture_run()` y llegaba siempre con `elapsed` apenas por encima del TTL. El símbolo
+   volvía a `normal`, se re-evaluaba entero y se proponía de nuevo. Medido sobre FIRY el 2026-09-22:
+   **18 filas en `incidencias` entre las 12:32 y las 21:04**, una cada 30 minutos, con el ROI clavado
+   en **39,6% ($220) diez vueltas seguidas** (14:02 → 18:34).
+
+   El chat nunca acumuló esos 18 mensajes —`hash_id = gc_{symbol}` reescribe el anterior— pero cada
+   vuelta **pagaba una evaluación de Claude**, dejaba su fila pendiente en `incidencias` y estrenaba
+   `pendiente_id`, que mata el botón del mensaje que el usuario tiene abierto.
+
+   Hoy el bloque `pendiente_autorizacion` del loop refresca en el lugar en vez de saltear:
+
+   | Situación | Qué hace |
+   |---|---|
+   | La clase propuesta sigue entre los escenarios | Recalcula `qty`, ganancia y `lmt_price` con el `last` de ahora y reescribe el mensaje **con el mismo `pendiente_id`** |
+   | El texto renderizado no cambió | No reescribe nada — mover el mensaje al pie del chat sin decir nada distinto es ruido |
+   | La clase ya no califica | Vence, `del_alert()`, y cae al flujo normal: cambió la decisión, no el precio, así que se re-evalúa con Claude |
+   | La clase califica pero ya no hay cantidad vendible | Igual que la anterior: la posición quedó comprometida, o la ganancia no llega al mínimo tras el recorte. Es un cambio de decisión, se re-evalúa |
+
+   **Se refresca el escenario entero, no solo el precio.** La primera versión del refresco congelaba
+   la `qty` —era la cantidad que el usuario tenía a la vista, y `_gains_capture_aprobar()` revalida el
+   gate cruzado contra ella antes de mandar nada— pero **eso es una red de seguridad, no una razón
+   para mostrar un número viejo**. La cantidad del escenario no es fija: `escenarios` se reconstruye
+   cada vuelta con `maximiza_sell_lotes(list_gain=lotes_validos, …)`, y `lotes_validos` son los que
+   cumplen `roi_lote >= min_roi` **contra el `last` de ahora**. Si el precio sube, entran lotes que
+   antes no calificaban y `cantidad sell` crece. Congelarla dejaba acciones vendibles afuera y, peor,
+   el botón mandaba la cantidad vieja aunque el mensaje dijera otra cosa.
+
+   Por eso el refresco reescribe en el pendiente `qty`, `position`, `lmt_price` y el `det.orden` del
+   audit trail: lo que se muestra y lo que ejecuta el botón tienen que ser el mismo número.
+
+   **El cálculo salió a `_gains_capture_qty()`.** Son cinco cortes encadenados —cuantizar, tope duro
+   contra la posición del broker, gate cruzado H5 (`qty_comprometida_sell`), recorte a lo disponible
+   con la ganancia prorrateada, y `min_ganancia` sobre esa ganancia recortada— y ahora corren dos
+   veces por ciclo, al proponer y al refrescar. Duplicados divergen en el primer cambio que toque uno
+   solo, y divergir acá significa proponer una cantidad que el gate ya no autoriza. El helper devuelve
+   `motivo` (`qty_cero` / `sin_disponible` / `ganancia_insuficiente`) y cada llamador decide: la
+   propuesta loguea y registra `CANCELLED` en `symbol_decision_history`, el refresco vence la propuesta.
+
+   Un detalle que se conservó tal cual: con `position == 0` el tope duro **no** corta y manda la
+   cantidad del escenario completa. Es el comportamiento previo — sin posición del broker contra qué
+   topear, no hay con qué recortar.
+
+   **El refresco no toca `pendiente_ts`.** El TTL mide cuánto lleva el usuario sin decidir, no cuánto
+   hace del último refresco; reiniciarlo volvería inmortal a la propuesta. `GC_PENDIENTE_TTL` pasó a
+   `14400` (4 h) y cambió de significado: ya no es *cada cuánto se reemite* sino *cuánto vale una
+   propuesta desatendida antes de re-evaluarla desde cero*.
+
+   **El texto del mensaje salió a `_gains_capture_msg()` y los botones a `_gains_capture_markup()`.**
+   La propuesta y su refresco tienen que decir lo mismo y apuntar al mismo `pendiente_id`; con dos
+   construcciones en paralelo divergen en el primer cambio que toque una sola.
+
+   **`add_alert(registrar=False)` (2026-09-22).** El refresco es el mismo hecho con otros números, así
+   que no corresponde fila nueva en `incidencias`. `dedup_key` no servía acá: agrupa bien en la tabla
+   pero **corta el envío** cuando `veces > 1`, que es justamente lo que hay que actualizar. El
+   parámetro nuevo separa las dos cosas — sale por Telegram, no registra.
 
 **RSI en la propuesta (2026-08-23).** La línea `RSI d/w` usa la misma escala de color que los
 mensajes de oportunidades (`💚 ≥70 · 🟢 ≥60 · 🟡 ≥50 · 🟠 ≥40 · 🔴 <40`), vía `_rsi_texto()`. En una
@@ -571,7 +636,8 @@ línea no aparece — nada de `N/A` en el cuerpo del mensaje.
 
 ## Flujo de estados por símbolo
 
-Los 4 estados y el timeout de 30 min coinciden exactamente con el diseño original. La
+Los 4 estados coinciden exactamente con el diseño original; el timeout ya no (30 min ahí, 4 h
+desde el 2026-09-22 — ver arriba). La
 condición de entrada al flujo es distinta (ver mecanismo real arriba):
 
 ```
@@ -599,7 +665,7 @@ Próximo ciclo Agente_GainsCapture
 | `normal` | Chequea niveles ROI no ejecutados |
 | `escalon_pendiente` | No toca nada — espera que SyncOrders detecte el fill |
 | `esperando_reset` | Lee posición fresca de IB, vuelve a normal |
-| `pendiente_autorizacion` | Espera /ok o /no por Telegram (timeout 30min → cancela) |
+| `pendiente_autorizacion` | Refresca el precio de la propuesta en cada vuelta; espera /ok o /no (timeout 4h → cancela) |
 
 ---
 
@@ -877,7 +943,7 @@ ver `design-preservation.md` § "La cuenta del agente era siempre la de Stock".
 
 - [x] ¿`Agente_GainsCapture` corre en el mismo hilo que `Agente_ManagerPreservation` o en uno separado? → Separado: `Agente_GainsCapture` vive en `Class_DashBot.py` (trading/mercado), `Agente_ManagerPreservation` en `Class_AgentManager.py` (infraestructura), cada uno con su propio `@wait_rate`.
 - [x] Si ambos agentes operan sobre el mismo símbolo simultáneamente (Preservation pone STOP, GainsCapture pone LMT SELL): ¿hay riesgo de conflicto? → **Resuelto 2026-08-29** con el gate cruzado — ver § "Gate cruzado con Preservation". Los dos agentes consultan las SELL vivas en `order_trader` antes de emitir. Era H5.
-- [x] Definir intervalo del agente → `@wait_rate(1800)` fijo (30 min), no `revisiones_dia` configurable como decía el diseño original.
+- [x] Definir intervalo del agente → `@wait_rate(1800)` fijo (30 min), no `revisiones_dia` configurable como decía el diseño original. El TTL de la propuesta **no** lo sigue: valía lo mismo, y por eso se recreaba en cada vuelta (2026-09-22).
 - [~] Techo de reglas fijas sobre `vender_qty` en Python post-Claude (equivalente al piso que ya tiene Preservation) — **parcial 2026-08-22**: existe el tope `vender_qty <= position` con ganancia prorrateada y el piso `min_ganancia` sobre la clase. El cruce con Preservation (H5) se cerró el 2026-08-29. Falta solo el techo relativo (ej: "nunca más del X% de la posición en un ciclo").
 - [ ] Calibrar `gains_capture.min_ganancia` — con 200 sobre la clase el agente solo puede proponer "100%" (ver "Umbrales" arriba).
 - [ ] El fallback fail-closed cuando Claude falla (esta sesión lo documentó como divergencia del diseño original, que era fail-open) — decidir explícitamente con el usuario si se mantiene o se revierte al comportamiento documentado originalmente.
