@@ -1011,7 +1011,7 @@ Ejecutado el 2026-09-22: **99 filas**, el número exacto que había medido el co
 > transacción**. Eran las mismas filas fantasma del defecto de arriba. La cuenta sigue fuera de la conciliación, pero
 > porque está inactiva y sin movimiento cargado, no porque le falte el período.
 
-#### Paso 3 del 1.6 — los parsers capturan el saldo (2026-09-22)
+#### Paso 3 del 1.6 — los parsers capturan el saldo (2026-09-22 → 2026-09-24)
 
 Una sola función de módulo, `parse_balances(lines, x_max)`, al lado de `parse_installments_due()`. Devuelve
 `(balance_prev, balance_curr)` buscando dos etiquetas: `SALDO ANTERIOR` y, para el cierre, `SALDO ACTUAL` **o**
@@ -1030,19 +1030,38 @@ separadas, como ya existen para la cuenta ARS y la USD de Santander, no una colu
 guiones bajos antes de mirar la línea, por lo mismo que `parse_installments_due`: el Visa los intercala entre los
 dígitos del importe.
 
-**Dónde quedó enganchada.** Dos de las cinco clases que cierran un import con saldo real:
+**Dónde quedó enganchada.** Tres de las cinco clases que cierran un import con saldo real:
 
 | Clase | De dónde sale el saldo | Estado |
 |---|---|---|
 | `BbvaArCuenta` (y `BbvaArAhorro`, que hereda) | las líneas que `_extract_rows()` ya recorre — sin reabrir el PDF | verificado |
 | `SantanderArTarjetaResumen` | `_extract_balances()`: hoja 1 + última hoja | verificado, 15/15 |
-| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all` | **sin material** |
+| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all()` (`22da1b3`) | implementado — **sin verificar en BD** |
 | `CitibankUs` | — | **sin material** |
 | `BdvVes` (y `BanescoVes`) | `SALDO MES ANTERIOR`, con importe | **sin implementar** |
 
-Las tres últimas siguen escribiendo NULL, que es la semántica ya definida: NULL es *el extracto no publica saldo o el
-import es anterior a la captura*, nunca un descuadre. No se escriben a ciegas — `SantanderAr` además tiene que asociar
-cada saldo a su sección, que es trabajo distinto del de los otros dos.
+`CitibankUs` y `BdvVes` (con `BanescoVes`) siguen escribiendo NULL, que es la semántica ya definida: NULL es *el
+extracto no publica saldo o el import es anterior a la captura*, nunca un descuadre. No se escriben a ciegas: de Citi
+no hay material y el `SALDO MES ANTERIOR` del BDV sigue sin implementar.
+
+**`SantanderAr` — el saldo se ata a su sección, y el signo no viaja en el importe** (`22da1b3`). El PDF unificado trae
+las dos cuentas en un solo archivo, así que el saldo no puede salir de una función que mire el documento entero:
+`_saldo_linea()` se llama desde el state machine de `_extract_all()`, con `state` diciendo a qué sección pertenece la
+línea, y `_balances` se resetea ahí mismo para que una segunda pasada sobre el mismo PDF no arrastre el saldo de la
+anterior. Toma el **último** importe de la línea y le pone el signo del `-$` que lo precede: el descubierto en pesos
+publica el guion pegado al símbolo, así que **el signo no viaja en el token del importe** y leerlo con
+`parse_amount_ar` a secas devuelve el descubierto en positivo. La línea `SALDO INICIAL` no lleva `continue` a
+propósito — también fija la fecha que arrastran los movimientos sin fecha propia.
+
+**El resumen de tarjeta cae a `TOTAL A PAGAR` cuando no publica `Saldo actual`.** Los resúmenes del formato nuevo
+dejaron de titular el cierre, y `parse_balances()` devolvía `balance_curr` en NULL sobre un PDF que sí tiene el dato.
+`_total_a_pagar()` lo busca **en todo el PDF** —la línea cae en una hoja del medio, no en la primera ni en la
+última— y **solo para el cierre**: `Saldo anterior` también titula el saldo de la cuenta que paga el resumen, y esa
+línea entraría como saldo de la tarjeta.
+
+**La rama "ya importado" también completa el saldo.** `SantanderAr.load()` llamaba `_fill_missing_balances()` solo en
+el camino de alta; hoy lo llama también cuando `uq_import` frena la sección, que es el caso de todo extracto cargado
+antes de la captura. Re-soltar el PDF completa el saldo sin duplicar movimientos.
 
 **Tarjetas — la cadena cierra sola.** El `balance_curr` de cada resumen es el `balance_prev` del siguiente, en las dos
 tarjetas y sin un hueco:
