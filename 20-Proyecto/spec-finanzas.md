@@ -1036,7 +1036,7 @@ dígitos del importe.
 |---|---|---|
 | `BbvaArCuenta` (y `BbvaArAhorro`, que hereda) | las líneas que `_extract_rows()` ya recorre — sin reabrir el PDF | verificado |
 | `SantanderArTarjetaResumen` | `_extract_balances()`: hoja 1 + última hoja | verificado, 15/15 |
-| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all()` (`22da1b3`) | verificado sobre el PDF (`6cae2a6`) — **pendiente en BD** |
+| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all()` (`22da1b3`) | verificado en BD, 4 imports (`6cae2a6`) |
 | `CitibankUs` | — | **sin material** |
 | `BdvVes` (y `BanescoVes`) | `SALDO MES ANTERIOR`, con importe | **sin implementar** |
 
@@ -1077,7 +1077,35 @@ por sección sin abrir conexión. Sobre el extracto de agosto: `cuenta_ars` −2
 el descubierto— y `cuenta_usd` 53,76 → 50,21, que cierra contra el único movimiento del mes, −3,55. La línea de
 apertura del tramo en pesos trae **tres** importes (`0,00`, `211.225,16`, `211.225,16`) y `_saldo_linea()` toma el
 último, que es el correcto. Las tres secciones de tarjeta quedan en NULL, y `santander_debito` sale con 0
-movimientos — consistente con que esa sección nunca apareció en los 209 imports de la tabla.
+movimientos.
+
+**Verificado en BD el 2026-09-24 — cobertura 14 → 17 imports con saldo.** El usuario soltó los PDF de Santander en
+`extractos\` y el turno natural de `Agente_ExtractosWatcher` los procesó a las 06:05. Lo que quedó grabado:
+
+| import | sección | `balance_prev` | `balance_curr` |
+|---|---|---|---|
+| 386 | `santander_cuenta_ars` | −211.225,16 | −315.051,05 |
+| 387 | `santander_cuenta_usd` | 53,76 | 50,21 |
+| 388 / 389 | visa y amex del unificado | NULL | NULL — a propósito |
+| 390 | `santander_tc_resumen` | NULL | 329.418,18 |
+
+El 390 es la prueba de que `_total_a_pagar()` funciona: antes cerraba con los dos saldos en NULL. Su `balance_prev`
+sigue en NULL porque el formato nuevo no publica `Saldo anterior` donde `parse_balances()` lo busca — hueco menor,
+la cadena de la Visa lo cubre con el cierre del resumen previo.
+
+**`santander_debito` no tiene ni un import porque la cuenta no existe en `fin_accounts`**, no por falta de
+movimientos: el log del import dice `Cuenta no encontrada: TD-2861 (debito) — omitida`. Es el mismo hueco del
+pendiente **2.8** —no hay UI de alta de cuentas— y se arregla dando de alta la cuenta, no tocando el parser.
+
+**Bloqueador del paso 5 — un extracto re-soltado queda sin período, así que el saldo queda sin fecha.** Los cuatro
+imports del unificado tienen `period_from`/`period_to` en NULL: `Class_Finance.py:3580` los calcula con
+`MIN(date)`/`MAX(date)` sobre `fin_transactions WHERE import_id = %s`, y un PDF ya importado cierra con
+`processed_count = 0` porque los movimientos cuelgan del import original. No es un caso de borde: **re-soltar el PDF
+es justamente el camino que completa el saldo de los 195 imports viejos**, así que el saldo entra sin fecha por
+diseño. El paso 5 tiene que elegir *el saldo más reciente por cuenta* y `imported_at` no sirve — dice cuándo se
+cargó el archivo, no a qué fecha corresponde el número. El dato está en el PDF (`Saldo total al 20/08/26`); de dónde
+tomarlo es decisión pendiente. Agrava la raíz ya anotada para el techo del 1.4: el período no solo es impreciso,
+en este camino no existe.
 
 **Tarjetas — la cadena cierra sola.** El `balance_curr` de cada resumen es el `balance_prev` del siguiente, en las dos
 tarjetas y sin un hueco:
