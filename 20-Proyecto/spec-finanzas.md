@@ -1036,7 +1036,7 @@ dígitos del importe.
 |---|---|---|
 | `BbvaArCuenta` (y `BbvaArAhorro`, que hereda) | las líneas que `_extract_rows()` ya recorre — sin reabrir el PDF | verificado |
 | `SantanderArTarjetaResumen` | `_extract_balances()`: hoja 1 + última hoja | verificado, 15/15 |
-| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all()` (`22da1b3`) | implementado — **sin verificar en BD** |
+| `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all()` (`22da1b3`) | verificado sobre el PDF (`6cae2a6`) — **pendiente en BD** |
 | `CitibankUs` | — | **sin material** |
 | `BdvVes` (y `BanescoVes`) | `SALDO MES ANTERIOR`, con importe | **sin implementar** |
 
@@ -1062,6 +1062,22 @@ línea entraría como saldo de la tarjeta.
 **La rama "ya importado" también completa el saldo.** `SantanderAr.load()` llamaba `_fill_missing_balances()` solo en
 el camino de alta; hoy lo llama también cuando `uq_import` frena la sección, que es el caso de todo extracto cargado
 antes de la captura. Re-soltar el PDF completa el saldo sin duplicar movimientos.
+
+**Re-soltar un PDF ya importado no resella `billing_date`.** Hay que decirlo porque el pendiente anotado en
+`run_carga_resumenes_viejos.py` avisa que `load()` resella las cuotas de la cuenta entera, sin filtro de fecha, y eso
+hace dudar de volver a soltar un extracto. El resello vive en el camino de alta —`Class_Finance.py:3670`, dentro de
+`if stats["inserted"]`— y un PDF ya importado retorna antes de llegar ahí; el `UPDATE` de `_set_billing_dates()` está
+además acotado por `import_id`, no por cuenta. La advertencia del script sigue valiendo **para el script**, donde los
+resúmenes viejos sí entran como altas nuevas.
+
+**Verificado sobre el PDF con `run_saldo_probe.py`** (`6cae2a6`). El probe no podía medir esta clase: leía por
+`parse_balances()`, y ese camino no pasa por el state machine, así que el único modo de ver el saldo del unificado era
+escribir en la BD. Hoy, cuando el adaptador detectado es `santander`, corre `_extract_all()` y muestra `prev`/`curr`
+por sección sin abrir conexión. Sobre el extracto de agosto: `cuenta_ars` −211.225,16 → −315.051,05 —negativo, que es
+el descubierto— y `cuenta_usd` 53,76 → 50,21, que cierra contra el único movimiento del mes, −3,55. La línea de
+apertura del tramo en pesos trae **tres** importes (`0,00`, `211.225,16`, `211.225,16`) y `_saldo_linea()` toma el
+último, que es el correcto. Las tres secciones de tarjeta quedan en NULL, y `santander_debito` sale con 0
+movimientos — consistente con que esa sección nunca apareció en los 209 imports de la tabla.
 
 **Tarjetas — la cadena cierra sola.** El `balance_curr` de cada resumen es el `balance_prev` del siguiente, en las dos
 tarjetas y sin un hueco:
