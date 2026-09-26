@@ -79,9 +79,22 @@ server-api/
 
 ### Seguridad Fase 1
 - API key en header `X-API-Key`
-- Rate limiting: 60 req/min
+- Rate limiting: **120 req/min** (`server.js`, subido de 60 el 2026-07-03 en `5bdd6a9`)
 - Solo GET + /db/query restringido a SELECT
 - No exposición de tablas de credenciales/sesiones
+
+**El presupuesto de 120 lo consume casi entero el panel de TradingView, y se cuenta por IP.** Todos
+los consumidores comparten `127.0.0.1` — panel, MCP, Report Center, cualquier diagnóstico — así que
+el límite es uno solo para todos. El ciclo `poll` del userscript gasta **4 peticiones**
+(`/ping` + `/current` + `/position` + `/price`); a 3s eran 80/min, más `pollPrice` cada 2s (30/min) y
+`fetchSymbols` cada 30s (2/min): **112 de 120, el 93%**. Con ese margen, una segunda pestaña de
+TradingView (224/min) o una consulta del MCP dispara **429**.
+
+Un 429 no se ve como error en el panel: el cuerpo parsea como JSON pero no trae `.posicion`, y el
+userscript leía eso como "no hay posición" y escondía el cuerpo del panel — quedaba solo la barra de
+título amarilla hasta que la ventana de 60s se limpiaba. Corregido el 2026-09-25 en `tv_panel.js` 2.8:
+el `poll` pasó a 5s (80/min) y toda respuesta con `status !== 200` se ignora en vez de apagar el panel.
+Al tocar este límite o agregar consumidores nuevos, rehacer esta cuenta.
 
 ### PM2 + Control en AppOO
 ```bash
