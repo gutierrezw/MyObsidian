@@ -1000,6 +1000,13 @@ Las 88 son reintentos reales de cargar un extracto ya cargado, y son el registro
 NULL por el mismo `MIN(date)`: mide las transacciones **de ese import**, y si todas se saltearon no hay ninguna. Que
 quede NULL es correcto; lo que estaba mal era no poder distinguirlas de las 99.
 
+> **Revertido el 2026-09-26: "que quede NULL es correcto" no se sostuvo.** Lo que cambió es para qué se usa la fila.
+> Mientras el import solo registraba *"este PDF pasó"*, un período vacío era una molestia. Desde el paso 3 la fila
+> **lleva el saldo**, y un saldo sin fecha no se puede ordenar ni comparar: el paso 5 necesita *el saldo más reciente
+> por cuenta*. Ahí la fila sin período pasó de incómoda a inservible, y encima es el estado en el que queda **el
+> camino que completa el saldo de los imports viejos**. El período ahora se mide sobre el PDF, así que estas 88 no
+> quedan sin período ni se vuelven a crear: se fusionan con el import original. Ver *Paso 4 del 1.6*.
+
 Las 99 se reparten por sección así: `santander_debito` 36, `santander_cuenta_usd` 18, `santander_cuenta_ars` 14,
 `santander_visa` 14, `santander_amex` 14, `citi_checking` 2, `bdv_cc` 1. El `DELETE` lleva `status = 'processed'` para
 no pisar un import en vuelo, y dos `NOT EXISTS` redundantes contra `fin_transactions` y `fin_card_cycles` — las dos
@@ -1093,9 +1100,16 @@ El 390 es la prueba de que `_total_a_pagar()` funciona: antes cerraba con los do
 sigue en NULL porque el formato nuevo no publica `Saldo anterior` donde `parse_balances()` lo busca — hueco menor,
 la cadena de la Visa lo cubre con el cierre del resumen previo.
 
-**`santander_debito` no tiene ni un import porque la cuenta no existe en `fin_accounts`**, no por falta de
-movimientos: el log del import dice `Cuenta no encontrada: TD-2861 (debito) — omitida`. Es el mismo hueco del
-pendiente **2.8** —no hay UI de alta de cuentas— y se arregla dando de alta la cuenta, no tocando el parser.
+**`santander_debito` no tiene ni un import porque la cuenta está inactiva.** `TD-2861` existe en `fin_accounts`
+con `is_active = 0`, igual que `196-004699/4` y `196-003750/1` de BBVA. Las nueve consultas de resolución filtran
+`AND is_active=1`, así que para el import una cuenta apagada es indistinguible de una inexistente.
+
+**Corregido el mismo 2026-09-24: acá se había escrito que la cuenta "no existe en `fin_accounts`"** (`46a90ad`).
+Es falso, y el error fue creerle al mensaje: los ocho `raise` dicen `Cuenta no encontrada`, y el de
+`Class_Finance.py:4213` agrega *"creala en fin_accounts primero"*. Seguir ese consejo sobre una cuenta apagada
+**crea la segunda cuenta del mismo producto** — el historíco partido que la identidad por producto viene a
+evitar. El mensaje tiene que distinguir los dos casos. Tampoco es el hueco del **2.8**: no falta UI de alta,
+falta poder activar.
 
 **Bloqueador del paso 5 — un extracto re-soltado queda sin período, así que el saldo queda sin fecha.** Los cuatro
 imports del unificado tienen `period_from`/`period_to` en NULL: `Class_Finance.py:3580` los calcula con
@@ -1106,6 +1120,10 @@ diseño. El paso 5 tiene que elegir *el saldo más reciente por cuenta* y `impor
 cargó el archivo, no a qué fecha corresponde el número. El dato está en el PDF (`Saldo total al 20/08/26`); de dónde
 tomarlo es decisión pendiente. Agrava la raíz ya anotada para el techo del 1.4: el período no solo es impreciso,
 en este camino no existe.
+
+> **Resuelto el 2026-09-26 (paso 4).** El período dejó de salir de `fin_transactions` y sale del PDF, así que un
+> extracto re-soltado ya lo sella. La decisión que quedaba pendiente —de dónde tomar la fecha— se responde sola: es
+> el `period_to` del propio extracto. Detalle en *Paso 4 del 1.6*, abajo.
 
 **Tarjetas — la cadena cierra sola.** El `balance_curr` de cada resumen es el `balance_prev` del siguiente, en las dos
 tarjetas y sin un hueco:
@@ -1153,6 +1171,61 @@ caja de ahorro quedó en `BbvaArCuenta`, y el extracto de Santander que falta es
 > `BbvaArTarjeta.load()` ya tenía una rama que sigue trabajando cuando el PDF está importado. Las tres clases con
 > saldo completan hoy por `_fill_missing_balances()`. Ver "El saldo de la tarjeta BBVA, y por qué re-soltar el PDF
 > alcanza". Sigue siendo cierto lo demás: hay que volver a bajar el PDF del homebanking.
+
+#### Paso 4 del 1.6 — la identidad de un import es la cuenta y el período, no el archivo (2026-09-26)
+
+**Medido antes de tocar nada: 94 de 212 imports sin período, casi todos con 0 movimientos.** Con 41 filas ya con
+saldo, la tabla que el paso 5 tiene que leer tenía casi la mitad de sus filas sin fecha.
+
+**El caso testigo es el extracto de enero de BBVA, partido en dos filas.** El import 78 (`bbva_cuenta`) tiene los 25
+movimientos y el período, sin saldo; el 391 (`bbva_ahorro`) tiene el saldo de enero, sin movimientos ni período. Son
+**el mismo archivo** —`file_hash` `c720da8c`— y **la misma cuenta** (25). Lo que difiere es la `section`, que es un
+detalle de qué parser lo levantó, no del extracto.
+
+Ahí está la raíz: `uq_import (file_hash, section)` no es la identidad de un extracto. Deja pasar el mismo archivo dos
+veces bajo secciones distintas, y no reconoce el mismo extracto cuando el archivo cambia de bytes —bajado de nuevo,
+renombrado, re-exportado—. Un extracto es **una cuenta y un período**; el archivo es el envase.
+
+**El período tenía que dejar de salir de la BD.** Los cinco adaptadores lo cerraban con
+`period_from=(SELECT MIN(date) FROM fin_transactions WHERE import_id=%s)`, que mide *lo que entró en esta corrida*.
+Cuando `uq_tx` frena todos los movimientos porque ya estaban, eso es cero filas y el período queda NULL — el mismo
+camino que completa el saldo de un extracto viejo es el que lo deja sin fecha. Ahora `_periodo_de_pdf()` lo saca de
+las transacciones **parseadas del PDF**, antes de que el índice único decida cuáles entran. Mismo dato, otra fuente:
+un PDF re-soltado calcula el mismo par porque el contenido es el mismo, y eso es justo lo que lo vuelve utilizable
+como identidad.
+
+**`_cerrar_import()` reemplaza el `UPDATE` de cierre en los cinco sitios.** Si el PDF no aportó ningún movimiento y
+ya hay un import de la misma cuenta y el mismo período, el saldo va a ese con `_fill_missing_balances()` y la fila
+nueva se borra. La condición `inserted == 0` es deliberada: si el PDF trajo aunque sea un movimiento nuevo, la fila
+tiene dato propio y se conserva. El orden también cambió en `bbva_tc` — el cierre va **antes** de `_save_card_cycle()`
+y `_set_billing_dates()`, que ahora reciben el id que quedó vivo; al revés, el ciclo quedaría apuntando a una fila
+borrada.
+
+| Adaptador | Estado |
+|---|---|
+| `bbva_tc`, `bbva_cuenta`, `santander_ar`, `citibank_us`, `bdv_ves` | corregidos — eran los cinco con `MIN`/`MAX(date)`. `banesco_ves` hereda de `BdvVes` y queda cubierto sin tocarlo |
+| `santander_tc_resumen` | ya estaba bien: lee `prev_closing`/`closing` del ciclo del PDF |
+| `binance_c2c` y el genérico de Binance | sin período **a propósito** — no son extractos de un período cerrado |
+
+**Verificado contra la BD real dentro de una transacción con `ROLLBACK`**, simulando el re-soltado del PDF de enero:
+`_cerrar_import` devolvió **78**, el 391 se borró, y el 78 quedó con sus 25 movimientos, su período y el saldo
+1.086.204,93 → 3.645.456,80. Las dos mitades de enero en una fila. El control inverso también pasó: un import con un
+período que esa cuenta no tiene **no borra nada** y sella el suyo.
+
+**Lo que el fix no hace: fusionar las 94 filas que ya están.** `uq_import` las frena antes de llegar al cierre, así
+que re-soltar el PDF de enero todavía entra por la rama *"ya importado"* y no dispara el merge. Eso es lo correcto
+según la regla de que un saneamiento no se cierra hasta que el código no pueda volver a ensuciar: el código ya no
+ensucia, y lo que hay se limpia con SQL aparte.
+
+**`closing_date` no sirve como identidad, y en BBVA el `period_from` de las tarjetas no es el ciclo.** Se midió
+porque era el candidato obvio para fechar el resumen:
+
+- En Santander, `closing_date == period_to` en los 18 resúmenes, sin excepción.
+- En BBVA difieren entre 0 y 10 días — el cierre del ciclo no es la fecha del último movimiento listado.
+- Y el `period_from` de BBVA es **la compra más antigua que aparece en el resumen**, no el inicio del ciclo: Master
+  repite `2025-11-09` en cuatro resúmenes y Visa `2026-02-07` en cinco, porque las cuotas arrastran su fecha de
+  compra original. Sirve igual como identidad —es determinista para un archivo dado— pero **no se debe leer como el
+  comienzo del período**.
 
 #### El resumen de tarjeta cambió de formato en agosto de 2026, y el parser sigue leyendo solo el nuevo (2026-09-22)
 
@@ -2135,6 +2208,37 @@ con el rate correcto de la fecha, no el rate de hoy.
 | account_number_last4| CHAR(4) | Últimos 4 dígitos (identificación rápida)   |
 | institution         | VARCHAR | Nombre institución (puede diferir del banco)|
 | is_active           | BOOL    |                                             |
+
+---
+
+**La identidad de una tarjeta es el producto, no el plástico** (decisión del usuario, 2026-09-24). Un banco no
+entrega dos VISA de crédito ni dos débitos, así que el par **(banco, producto)** —producto ∈ VISA / MASTER /
+AMEX / TD— es único por definición. El número, en cambio, cambia por **upgrade, reemplazo, pérdida o
+fraude**: son eventos normales, no excepciones.
+
+Hoy el número **es** la identidad, en tres capas:
+
+| Capa | Hoy | Al cambiar el número |
+|---|---|---|
+| Detección del PDF | `DETECTION_RULES` busca el número impreso (`Class_Finance.py:2142`) | no matchea ninguna regla → el PDF va a `desconocidos/` |
+| Identidad | `account_ref` = `TC-0925`, `TD-2861`, `TC-1269461197` | `Cuenta no encontrada` → se da de alta otra cuenta |
+| Clave única | `uq_account (bank_id, account_ref, currency)` | **acepta la duplicada**: distinto ref, mismo producto |
+
+Y se parte todo lo que agrupa por cuenta: la cadena de `fin_card_cycles`, `_set_billing_dates()`, la cobertura
+del monitor 1.3, y el saldo por cuenta del **1.6** mostraría dos filas Visa —una congelada en el último
+resumen del plástico viejo—. `short_name` es `UNIQUE` desde el 21-09, así que la cuenta nueva tampoco puede
+llamarse `Visa`: hay que inventar `Visa 2`, justo lo que ese UNIQUE vino a evitar.
+
+**Medido el 2026-09-24 sobre las 15 cuentas: no hay ningún histórico partido todavía.** Los dos `bbva_tc` son
+productos distintos —Visa Signature `9390` y Mastercard Black `1197`—, no una tarjeta renumerada. Y
+`account_number_last4` ya está poblada en las 14 cuentas con número, separada del `account_ref`: el dato del
+plástico ya vive donde corresponde, solo falta que deje de ser también la identidad. `(banco, producto,
+currency)` no colisiona en ninguna de las 15 filas.
+
+Sin implementar. Pendiente de decidir: si el producto va como columna nueva (`product`) o se deriva de un
+`account_ref` estandarizado (`SANT-VISA`, `BBVA-MASTER`), y qué se hace con `DETECTION_RULES`, que hoy lleva los
+números de cuenta escritos en el `.py` — eso obliga a un commit por cada tarjeta reemplazada e impide que un
+hijo cargue sus propios extractos sin editar el código.
 
 ---
 
