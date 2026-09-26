@@ -1217,6 +1217,65 @@ que re-soltar el PDF de enero todavía entra por la rama *"ya importado"* y no d
 según la regla de que un saneamiento no se cierra hasta que el código no pueda volver a ensuciar: el código ya no
 ensucia, y lo que hay se limpia con SQL aparte.
 
+> **Ampliado el 2026-09-26, el mismo día: re-soltar el PDF ahora sí fecha la fila.** El párrafo de arriba daba por
+> bueno dejar las 94 al SQL. El control las midió antes de escribirlo y el reparto no era el supuesto: **no hay 94
+> filas para fusionar, hay 4**, y 93 no tienen con quién fusionarse. La rama *"ya importado"* pasó a sellar período
+> además de saldo, así que el SQL dejó de ser el camino para fecharlas. Detalle abajo.
+
+#### El control de las 94 filas sin período, y por qué la rama "ya importado" también sella el período (2026-09-26)
+
+**Medido antes de escribir una sola línea de SQL**, en solo lectura sobre los 212 imports:
+
+| Reparto | Filas | Con saldo |
+|---|---|---|
+| Con período | 118 | 38 |
+| Sin período | 94 | 3 — los imports 386, 387 y 391 |
+
+**Fusionables de verdad: 4.**
+
+| Filas | Qué son |
+|---|---|
+| 391 → 78 | el único par que comparte cuenta **y** `file_hash` (`c720da8c`, cuenta 25): el 391 tiene el saldo de enero, el 78 los 25 movimientos |
+| 390 → 324 | mismo período (`2026-07-23`→`2026-08-20`): el 390 trae el saldo, el 324 el ciclo en `fin_card_cycles` |
+| 363, 350 | fantasmas puros — 0 movimientos, 0 saldo, 0 ciclos, y su hermano ya tiene el período |
+
+**Las otras 93 no tienen hermano**, así que ningún SQL de merge las alcanza. Es lo que obligó a extender el código:
+entre ellas están **386 y 387**, los saldos de Santander de agosto del paso 3, con saldo y sin fecha — exactamente
+lo que el paso 5 tiene que ordenar.
+
+**Dos correcciones al plan anotado el día anterior:**
+
+- **386 y 387 no son fusionables**, como decía esa nota: no tienen hermano. Se preservan, igual que el 391.
+- **`processed_count` no coincide con las filas reales de `fin_transactions`** en varias filas — el import 372 dice
+  7 y no tiene ninguna apuntándole. Un control sobre estas filas cuenta `fin_transactions`, nunca la columna.
+
+**El par 285 / 290 queda abierto como advertencia.** Son dos extractos distintos de Santander Visa —`file_hash`
+distinto, 5 y 3 movimientos propios— con **el mismo par (`2026-02-13`, `2026-05-21`)**. Es el artefacto ya anotado
+para BBVA: las cuotas arrastran la fecha de la compra original, así que el rango de fechas del PDF no identifica el
+mes del resumen. La guarda `inserted == 0` lo contiene —un PDF que aporta movimientos nuevos nunca se fusiona— pero
+un resumen ya cargado que se vuelva a soltar podría completar el saldo de la fila del mes equivocado. **No
+corregido**: hacen falta más resúmenes de Visa para saber si es un caso aislado o el patrón.
+
+**El cambio: la rama *"ya importado"* sella el período, no solo el saldo.** `_fill_missing_balances()` toma un
+`periodo` opcional y lo escribe con el mismo `COALESCE` que ya usaba para el saldo: completa lo que falta y no pisa
+nada. Con eso, soltar de nuevo un extracto viejo lo fecha, que es el único camino que llega a las 93 filas sin
+hermano. Dos de las siete ramas no tocaban la fila en absoluto —`citibank_us` y `bdv_ves`— y ahora sí.
+
+| Rama | De dónde sale el período |
+|---|---|
+| `bbva_tc`, `santander_ar`, `citibank_us`, `bdv_ves` (y `banesco_ves` por herencia) | las filas crudas del PDF, que ya traen la fecha parseada |
+| `bbva_cuenta` (y `bbva_ahorro`) | las filas crudas más `self._parse_date`, porque ahí la fecha todavía es texto |
+| `santander_tc_resumen` | el ciclo del PDF: `prev_closing` → `closing` |
+| `binance_c2c` | **sin cambio** — no es un extracto de un período cerrado |
+
+**El período no puede salir de `_build_transactions()`**, que es lo que parsearía la fecha en el camino de
+`bbva_cuenta`: ese método clasifica, y `apply_rules()` suma `hit_count` por movimientos que no se van a insertar. De
+ahí el parámetro `parse` de `_periodo_de_pdf()`.
+
+**Verificado contra la BD real con `ROLLBACK`**: los imports 386 y 387 quedaron con `2026-07-23`→`2026-08-20` sin que
+su saldo se moviera; el 78, que ya tenía período, lo conservó aunque se le pasara otro; y la llamada sin saldo ni
+período no emite `UPDATE` — las 92 filas sin período que quedaban siguieron siendo 92.
+
 **`closing_date` no sirve como identidad, y en BBVA el `period_from` de las tarjetas no es el ciclo.** Se midió
 porque era el candidato obvio para fechar el resumen:
 
