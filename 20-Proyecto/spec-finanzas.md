@@ -1732,6 +1732,47 @@ completa del resumen como patrón. Lo que se aprendió en las tres mediciones: n
 reescribe el `match_type` por hipótesis, y los únicos patrones que hay que bajar son los del instrumento en lugar del
 comercio — los tres ya bajados.
 
+#### Las filas sin categoría no se veían desde ningún lado (2026-09-26)
+
+Pedido del usuario: *"los gastos sin categuria trato de verlos y no se muestran en el panal asi que no puedo corregir
+o clasificar"*.
+
+**No era un problema de datos: son 3 filas, 40,42 USD, y estaban las tres cargadas.** Lo que fallaba es que el panel
+muestra **un mes por vez** y abre en el último mes con movimiento real anterior al actual —hoy agosto de 2026—, donde
+no hay ninguna. Medido el 2026-09-26:
+
+| id | Fecha | Cuenta | Monto | Descripción |
+|---|---|---|---|---|
+| 2677 | 2026-07-01 | BBVA CA ARS | 25.700 ARS / 16,51 USD | TRANSFERENCIA CAP999 309236 6 |
+| 2059 | 2026-05-02 | Santander Visa | 11.500 ARS / 7,68 USD | Dobao andrea fernanda |
+| 1175 | 2025-12-23 | Santander Visa | 25.000 ARS / 16,22 USD | Vinoteca el granate |
+
+Tres meses distintos, ninguno el que el panel abre. Agosto de 2026 trae 148 movimientos y **cero** sin categoría, así
+que la vista del período decía la verdad y no había nada que corregir desde ahí. La línea *Gasto sin clase — falta
+clasificar* del bloque RESUMEN avisaba del monto, pero no lleva a las filas.
+
+**El arreglo: una quinta vista, la única que ignora el período.** `get_transactions()` toma `sin_categoria`, que
+cambia el criterio del `WHERE` —`t.category_id IS NULL` en lugar del rango de fechas— y deja el resto de la consulta
+igual. La vista es una segunda instancia de `_TxnTable`, con los mismos dos doble-clic (fecha y categoría), así que
+clasificar desde ahí usa el camino que ya existía.
+
+| Detalle | Comportamiento |
+|---|---|
+| Etiqueta | `Sin clasificar (N)` en rojo mientras N > 0 — mismo patrón que Cobertura |
+| Al clasificar una fila | `refresh()` completo: la fila deja de pertenecer a la vista, y dejarla visible mentiría sobre lo que falta |
+| Filtro de categoría | no aplica — el botón de limpiar filtro se oculta, como en las otras tres vistas |
+
+**Un defecto que el cambio corrigió de paso:** `_save_category` y `_save_date` iban siempre a `self._txn_table`. Con
+dos grillas que comparten los callbacks de edición, una corrección hecha desde la vista nueva habría buscado la fila
+en la grilla equivocada. De ahí `_tabla_detalle()`, que devuelve la que está a la vista.
+
+**Lo que no se tocó: por qué el depósito en garantía no figura entre los gastos.** Se revisó en la misma sesión (ids
+1946 y 1947, 1.048.581,35 ARS = 713,82 USD al cambio del día, 2026-04-15) y está bien cargado: su categoría 166 es
+`transfer`, y como `_SQL_GRUPO` toma el tipo de la **categoría** y no de la fila, cae en Transferencias aunque
+`t.type` diga `expense`. Eso es lo correcto — una garantía es un activo a cobrar, no un gasto. Quedan dos huecos
+anotados, sin decisión: el módulo **no tiene dónde registrar ese activo** —solo conoce flujo, `fin_transactions`— y
+el Flujo **promedia un pago único** como si fuera recurrente (713,82 / 6 = los 119 USD que se ven en la ventana 6M).
+
 ------------------------------------------------------------------------
 
 ### Fase 3 — registro de lo hecho
