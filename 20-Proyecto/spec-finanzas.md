@@ -1044,12 +1044,13 @@ dígitos del importe.
 | `BbvaArCuenta` (y `BbvaArAhorro`, que hereda) | las líneas que `_extract_rows()` ya recorre — sin reabrir el PDF | verificado |
 | `SantanderArTarjetaResumen` | `_extract_balances()`: hoja 1 + última hoja | verificado, 15/15 |
 | `SantanderAr` (PDF unificado) | por sección, dentro del state machine de `_extract_all()` (`22da1b3`) | verificado en BD, 4 imports (`6cae2a6`) |
-| `CitibankUs` | — | **sin material** |
+| `CitibankUs` | `_saldo_linea()`: `Beginning`/`Ending Balance` de la hoja 2, por sección (2026-09-27) | verificado sobre 9 PDF, 18 saldos |
 | `BdvVes` (y `BanescoVes`) | `SALDO MES ANTERIOR`, con importe | **sin implementar** |
 
-`CitibankUs` y `BdvVes` (con `BanescoVes`) siguen escribiendo NULL, que es la semántica ya definida: NULL es *el
-extracto no publica saldo o el import es anterior a la captura*, nunca un descuadre. No se escriben a ciegas: de Citi
-no hay material y el `SALDO MES ANTERIOR` del BDV sigue sin implementar.
+`BdvVes` (con `BanescoVes`) sigue escribiendo NULL, que es la semántica ya definida: NULL es *el extracto no
+publica saldo o el import es anterior a la captura*, nunca un descuadre: su `SALDO MES ANTERIOR` no matchea
+`RE_SALDO_PREV` y no se escribe a ciegas. `CitibankUs` quedó cerrado el 2026-09-27 — ver la entrada al pie del
+paso 4.
 
 **`SantanderAr` — el saldo se ata a su sección, y el signo no viaja en el importe** (`22da1b3`). El PDF unificado trae
 las dos cuentas en un solo archivo, así que el saldo no puede salir de una función que mire el documento entero:
@@ -1285,6 +1286,76 @@ porque era el candidato obvio para fechar el resumen:
   repite `2025-11-09` en cuatro resúmenes y Visa `2026-02-07` en cinco, porque las cuotas arrastran su fecha de
   compra original. Sirve igual como identidad —es determinista para un archivo dado— pero **no se debe leer como el
   comienzo del período**.
+
+#### `CitibankUs` captura el saldo: `Beginning` / `Ending Balance` por sección (2026-09-27)
+
+El paso 3 dejó a `CitibankUs` escribiendo NULL con el motivo **sin material** — no había PDF para calibrar. El usuario
+soltó los nueve extractos (enero a septiembre de 2026) y con eso quedó cerrado el último parser de saldo que faltaba
+entre las cuentas con saldo real: las dos cuentas de Citi eran **22 imports en cero**, la mayor concentración del
+inventario.
+
+**El extracto lo publica dos veces y en dos formas distintas.** La hoja 1 trae el resumen de productos
+(`Checking $196.80`, `Savings $726.35`, `Total Checking and Savings at Citibank $923.15`) y la hoja 2, por sección, el
+par de la actividad:
+
+```
+CHECKING ACTIVITY
+Regular Checking
+9135153751 Beginning Balance: $231.80
+            Ending Balance: $196.80
+```
+
+Se leyó el de la hoja 2, no el de la hoja 1, por la misma razón que en `SantanderAr`: el PDF trae **dos cuentas en un
+solo archivo** y son dos imports distintos, así que el saldo tiene que atarse a la sección que estaba abierta. El
+state machine de `_extract_all()` ya distingue `CHECKING ACTIVITY` de `SAVINGS ACTIVITY`, y las dos líneas ya pasaban
+por ahí: `SKIP_DESC` las descartaba como movimiento desde el primer día. La captura se enganchó en ese mismo `if`, que
+es el único punto del recorrido donde la línea de saldo y la sección se conocen a la vez. La hoja 1 no serviría: ahí
+`state` todavía es `"none"` y el importe no dice a qué cuenta pertenece sin volver a parsear el nombre del producto.
+
+**El importe no sale de la columna, sale de la regex.** `_classify_word()` reparte por X según el layout de los
+movimientos, y el saldo no lo respeta. Además el número de cuenta viaja en la misma línea
+(`9135153751 Beginning Balance: $231.80`), así que hay dos números en una línea de tres tokens útiles.
+`_saldo_linea()` recorre la línea de derecha a izquierda y toma el primer token con formato de importe US —
+`RE_IMPORTE_US` exige el punto decimal y dos decimales, que es justo lo que el número de cuenta no tiene—. Es el mismo
+criterio que `SantanderArTarjetaResumen` aplica por coordenada, resuelto acá por forma del token porque el layout no
+ayuda.
+
+**Primera aparición gana, no la última.** Al revés que `parse_balances()`, donde el cierre es la última coincidencia
+porque cierra el extracto. Acá el par abre la sección —`Beginning` y `Ending` van pegados, al tope de la actividad— y
+`state` queda abierto durante las hojas 3 a 8, que son páginas de letra chica sobre saldos promedio, *Balance Range* y
+*EOD Balance*. Ninguna de las nueve nombra hoy un `ending balance`, pero tomar la última dejaría el saldo a merced de
+un cambio de redacción en el pie legal.
+
+**Verificado sobre los nueve PDFs, sin tocar la BD** (`_extract_all()` solo lee el archivo). 18 saldos, 18 capturados,
+y la cadena cierra sola: el cierre de cada mes es la apertura del siguiente en las dos cuentas, sin un solo salto.
+
+| Mes | Checking | Savings |
+|---|---|---|
+| ene | 193,93 → 237,93 | 586,19 → 596,20 |
+| feb | 237,93 → 128,85 | 596,20 → 606,22 |
+| mar | 128,85 → 169,96 | 606,22 → 616,23 |
+| abr | 169,96 → 159,96 | 616,23 → 626,25 |
+| may | 159,96 → 197,96 | 626,25 → 646,27 |
+| jun | 197,96 → 218,80 | 646,27 → 666,29 |
+| jul | 218,80 → 251,80 | 666,29 → 686,31 |
+| ago | 251,80 → 231,80 | 686,31 → 706,33 |
+| sep | 231,80 → **196,80** | 706,33 → **726,35** |
+
+Los dos últimos son los que el paso 5 va a mostrar, y coinciden con el resumen de productos de la hoja 1 del extracto
+de septiembre — que es una fuente distinta dentro del mismo PDF, leída por otro camino. Es la verificación más fuerte
+que se consiguió en todo el 1.6: los 16 encadenamientos son un control de integridad que ningún otro banco ofreció.
+
+**Los saldos entran por la rama "ya importado".** Los nueve PDF ya están cargados, así que el hash frena el alta y el
+adaptador pasa por `_fill_missing_balances()`, que ahora recibe el par en lugar de `None, None`. El `COALESCE` deja
+intacto lo que ya tenga valor, así que re-soltar los nueve completa saldo y período de los 22 imports sin duplicar un
+solo movimiento. Es el mismo camino que ya había habilitado `SantanderAr`.
+
+**Hueco conocido: una sección sin movimientos no recibe su saldo.** `load()` saltea la sección cuyo `all_rows` viene
+vacío —a propósito: un import `processed` con los contadores en 0 y el período en NULL deja de decir que se cargó—,
+pero el saldo de esa sección sí existe. Pasa en dos de los nueve: el checking de abril (169,96 → 159,96) y el de
+agosto (251,80 → 231,80) no tuvieron movimientos y no tienen import donde escribirse. No bloquea el paso 5, que
+necesita *el último* saldo por cuenta y ese sí tiene import (el de septiembre). Se anota, no se corrige: la regla de
+no crear imports vacíos se decidió en el paso 4 y vale más que estos dos saldos intermedios.
 
 #### El resumen de tarjeta cambió de formato en agosto de 2026, y el parser sigue leyendo solo el nuevo (2026-09-22)
 
