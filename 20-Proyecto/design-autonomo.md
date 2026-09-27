@@ -324,3 +324,90 @@ En orden, sin fechas:
    umbral de venta se mueve sin correr `AppTest/run_booktrading_roi.py` sobre la ventana vigente.
 6. Devolverle el mandato a Crypto en Preservation (H6) o declarar por escrito que no lo tiene.
 7. Recién ahí, conectar con Fase 3/4 de [[design-agente-ia]].
+
+---
+
+## 7. Idea abierta — el mandato como precio gatillo (2026-09-27)
+
+**Estado: idea, no diseño.** No hay decisión tomada ni trabajo comprometido. Se anota porque
+salió de algo construido y medido, no de una especulación.
+
+**De dónde viene.** El 2026-09-27 se armó una página de emergencia para operar Crypto a mano
+durante un viaje (AppOO apagada, Preservation en `_preservation_dry_run = True`, cero órdenes
+vivas en `order_trader`). La página congela los 451 lotes de las 12 posiciones y, para cada
+símbolo, precomputa **a qué precio** la clase 100% cumple los dos umbrales de GainsCapture
+(300 USD y 30% de ROI). Al usarla apareció que esa presentación no es solo una ayuda manual:
+describe una forma distinta de operar el autónomo.
+
+### 7.1 El gatillo es un número, no una evaluación
+
+Hoy cada módulo corre cada N segundos, relee posición, técnicos y parámetros, y decide. Pero la
+decisión colapsa en un precio: el conjunto de lotes en ganancia solo cambia en los breakeven
+(`c/q` de cada lote), así que **dentro de cada tramo Q y C son constantes** y el precio mínimo
+que cumple ambos umbrales sale de una fórmula cerrada:
+
+```
+p = max( (min_ganancia + C) / Q ,  C * (1 + min_roi) / Q )
+```
+
+recorriendo los breakeven ordenados y quedándose con el primer candidato que cae dentro de su
+tramo. Medido sobre la cartera del 2026-09-27:
+
+| Símbolo | Lotes ganadores | Gatillo | Distancia |
+|---|---|---|---|
+| SOL | 22/32 | 147.997 | +19.3% |
+| BTC | 25/26 | 98381.4 | +15.9% |
+| VET | 11/48 | 0.0129569 | +39.0% |
+| FIL | 8/60 | 1.81392 | +59.2% |
+| DOT | 6/51 | 2.23935 | +79.1% |
+
+Si el sistema precomputa esto y después **solo vigila precio**, el bucle de decisión deja de
+necesitar la máquina completa: necesita un websocket y una comparación. Eso es exactamente lo
+que lo vuelve portable a la nube y tolerante a internet inestable — los dos principios de
+plataforma que hoy no se cumplen porque el ciclo de decisión depende de la app local.
+
+Qué invalida el gatillo precomputado: una compra o venta del símbolo (cambian Q y C), un cambio
+de umbral, y el paso del tiempo si el mandato incluye técnicos móviles (SMA20, ATR). Los tres son
+eventos discretos y observables — no hace falta recalcular en cada tick.
+
+### 7.2 Se autoriza la regla, no el click
+
+El modo `SUPERVISADO` pide permiso en el momento de decidir. Esa unidad de aprobación es la que
+produjo las 16 filas repetidas de `symbol_decision_history` sobre ADAUSDT — el agente proponía en
+cada turno y esperaba (ver la nota de `dedup_key` en `CLAUDE.md`).
+
+La página invierte la unidad: *"si SOL llega a 147.997, vendé estos 22 lotes, 5.39 unidades,
++161.91 USD"*. Eso es un mandato **verificable antes de ejecutarse** y aprobable una sola vez. El
+humano autoriza el umbral; la máquina cumple sin volver a preguntar. Es un grado de autonomía que
+hoy no está en la tabla de la sección 2: no es "propone y espera" ni "ejecuta libre" — es
+**"ejecuta lo que ya fue autorizado, y nada más"**.
+
+Encaja con la sección 4: un gatillo autorizado es exactamente el tipo de límite que podría vivir
+en `variablesplan` sin los dos bloqueadores de esa sección, porque es un número por símbolo y no
+una política general.
+
+### 7.3 El estado del bucle entra en 26 KB
+
+Los 451 lotes, los parámetros de los tres módulos, el estado de Preservation y los técnicos de las
+12 posiciones caben en un JSON de 25.836 bytes. El que decide no necesita MySQL adentro del bucle:
+MySQL sigue siendo la verdad y el que persiste, pero el ciclo de decisión puede correr sobre un
+snapshot que se refresca cuando cambia algo de 7.1. Resiliencia y portabilidad salen de la misma
+decisión de diseño.
+
+### 7.4 Lo que esta idea no resuelve
+
+**Los 339 lotes en pérdida.** El gatillo solo sabe de los 112 que están en verde (25% de la
+cartera). Sobre el resto no hay mandato de ningún módulo: Preservation protege un porcentaje de la
+posición viva, GainsCapture y Oportunidades solo miran ganancia. Un autónomo que opere por gatillos
+precomputados sería muy bueno vendiendo lo que ya ganó y seguiría sin decir nada sobre lo que
+perdió. Eso no es un defecto de la idea — es el mismo hueco que ya tiene la doctrina de la
+sección 1, expuesto con más claridad.
+
+**El orden entre símbolos.** La página ordena por una noción de "oportunidad"
+(`ganancia / max(0.2, 1 + distancia)`) que es un criterio inventado para esa vista, **no algo que
+el sistema use**: GainsCapture y Oportunidades evalúan cada símbolo por separado y no compiten
+entre sí. Si el autónomo tuviera que priorizar con capital o margen limitado, ese criterio habría
+que definirlo y medirlo, no heredarlo de una página de viaje.
+
+**Nada de esto cambia el orden de la sección 6.** Los tres módulos siguen sin correr estables por
+separado, que es la condición que puso el usuario.
