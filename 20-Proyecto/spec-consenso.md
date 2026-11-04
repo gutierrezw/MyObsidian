@@ -338,12 +338,26 @@ para verificar si los fundamentos apoyan de forma **independiente** la señal t�
 | `Agente_ConsensoCache` | `Class_DashBot.py` | `@wait_rate(300)` — refresca tags cada 5 min |
 | Gate BUY | `Agente_message_Manager_Buy` | Bloquea si tag ∉ {UNANIME, CONSENSO, TENDENCIA} |
 | Gate SELL | `Agente_message_Manager_sell` | Bloquea si tag ∉ {ALERTA, SALIDA} |
+| Filtro del usuario | `_filtro_senal_ok()` | Menú Telegram 🎯 Señal — set vacío = todas; `SD` = símbolo sin señal |
+
+**Los dos gates no coincidían nunca — corregido 2026-11-04.** `senal_consenso()` devuelve la etiqueta
+**ya formateada** (`"▲ CONSENSO"`) y `refresh_consenso_tags()` la persiste tal cual, pero los sets de
+los gates son claves peladas, así que `"▲ CONSENSO" not in _BUY_TAGS` era siempre verdadero: el gate BUY
+bloqueaba **todo símbolo con señal** y dejaba pasar solo los 1315 sin ella; el SELL bloqueaba toda venta
+con señal y `roi < MaxRoi`, incluidas las `↘ ALERTA` / `▼ SALIDA` que existe para dejar pasar. En BUY no
+se veía porque `modo_etiquetado_buy` saltea el gate. Hoy todo consumidor normaliza con `_consenso_clave()`
+—quita el prefijo y los acentos— antes de comparar.
+
+**El filtro del usuario no vive en los `Agente_message_Manager_*`** sino en `oportunity_handler_sell`
+(casilla `5_gate_menu`) y `oportunity_handler_buy`, justo por eso: `modo_etiquetado_buy` saltea el gate y
+la preferencia del usuario tiene que valer igual. El Top10 queda exento por construcción —
+`send_top10_telegram()` llama al `_message_sell` directo —, que es lo correcto: se pide a mano.
 
 ### Columnas BD
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `market.consenso_tag` | VARCHAR(15) | Tag limpio: UNANIME/CONSENSO/TENDENCIA/NEUTRO/ALERTA/SALIDA |
+| `market.consenso_tag` | VARCHAR(15) | Etiqueta **formateada**, con prefijo: `★ UNÁNIME` / `▲ CONSENSO` / `↗ TENDENCIA` / `→ NEUTRO` / `↘ ALERTA` / `▼ SALIDA`. 3 filas viejas la traen pelada — comparar el texto crudo contra un set de claves no coincide, hay que normalizar |
 | `market.consenso_suma` | TINYINT | Suma de los 6 votos sin Mod (-6 a +6) |
 
 > `tag=None` → gate abierto (símbolo sin tag calculado aún — no bloquea)
