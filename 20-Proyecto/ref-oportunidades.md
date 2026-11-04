@@ -200,12 +200,29 @@ BD oportunidades (tipo='buy' / tipo='sell')
 | `Class_DashBot.py` | Agentes ManagerBuy/Sell, handlers, TOP10, read CSV |
 | `Class_IA_modelos.py` | Clases ModeloOportunidadesBuy/Sell, entrenamiento, predicción |
 | `Class_customer.py` | `csv_OptionBuy_write()` — genera csv_datosIA_buy.csv |
+| `Class_customer.py` | `csv_OptionSales_write()` — genera csv_datosIA_sell.csv |
 | `csv_datosIA_buy.csv` | Input modelo BUY (datos de rebalanceo + técnicos) |
 | `csv_datosIA_sell.csv` | Input modelo SELL |
 | `modelo_buyv01.pkl` | Modelo entrenado BUY |
 | `modelo_sellv01.pkl` | Modelo entrenado SELL |
 | BD `oportunidades` | Historial etiquetado para entrenamiento |
 | BD `modelos_ia` | Parámetros y umbrales configurables |
+
+### `Objetivo` en la tarjeta de venta (2026-11-04)
+
+La tarjeta BUY mostraba el precio objetivo y la SELL no, aunque las dos deciden contra el mismo
+número: vender por debajo del objetivo es renunciar a lo que falta.
+
+El dato **no se calcula** — es `inversion.objetivo`, el mismo que ya consume `oportunidades_buy()`.
+Viaja por la cadena que ya existía: `position["objetivo"]` → `info[symbol]["sell"]` →
+`get_info_symbols_gain()` → columna `Objetivo` del CSV → `message_format_sell()`.
+
+Cobertura medida el 2026-11-04: Stock **40/40** y Crypto **12/12** con objetivo cargado; los **3** FCI
+(SANT0001, BBVA0001) en 0, así que ahí la línea muestra `0.0000` — igual que la tarjeta BUY.
+
+La columna es nueva en el CSV, así que se lee con `row.get("Objetivo", 0)`: un CSV de la corrida
+anterior no la trae y la tarjeta no debe caerse por eso. No entra como feature del modelo —
+`predecir_modelo` selecciona por `feature_names_in_`, cualquier columna extra queda fuera.
 
 ---
 
@@ -293,6 +310,7 @@ el veredicto, el volumen queda acotado por los cambios de estado, no por los cic
 ## Historial
 | Versión | Fecha | Cambio |
 |---------|-------|--------|
+| 2.4 | 2026-11-04 | `Objetivo` en la tarjeta de venta — `inversion.objetivo` propagado por la cadena del sell |
 | 2.3 | 2026-09-03 | Camino único de predicción (panel = agente) + traza de las 7 capas en `json_detalle.capas` |
 | 2.2 | 2026-08-22 | Gate de calendario en los message handlers — no se notifica vehículo cerrado |
 | 2.1 | 2026-08-22 | Umbral SELL por CLASE y por vehículo (`gains_oportunidades`), fail-open cerrado en `readCSV_sell` |
