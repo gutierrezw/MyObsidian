@@ -141,6 +141,16 @@ DataHub.mercado_abierto(vehiculo="Stock", con_horario=False) -> bool
   re-suscribir habría mandado ~40 `smd+` cada 40 min con un burst de ~130 mensajes de snapshot
   pisando precios vivos, contra 6 bytes por minuto. **Ojo:** el `{"topic":"system","hb":...}` que
   llega cada 10 s es el heartbeat que manda el *gateway*, documentado aparte; no reemplaza a `ech+hb`.
+- 🔄 **Revertido el 2026-10-23: la re-suscripción volvió, y es la vigente.** La entrada de arriba queda
+  como está porque el diagnóstico era correcto para la *conexión*; lo que muere es la *suscripción*. Con el
+  `ech+hb` saliendo cada 60 s sin faltar uno (116 envíos verificados) el flujo murió igual a los **2694 s**,
+  socket vivo y sesión autenticada. Hoy el hilo del heartbeat reenvía `smd+` a los **2400 s** (`RESUB` en
+  `MyWebsocket`) — justo el burst de ~130 mensajes de snapshot que la entrada del 22-09 había descartado, y
+  se acepta porque es lo único que rearma el flujo. Medición y motivo en [[sesion-2026-09-23-websocket-ib]].
+- ⚠️ **Ese snapshot traía también la posición y el costo del panel de Stock, y por eso una compra tardaba
+  hasta 40 min en verse.** `procesa_stock` pedía la cantidad al campo `76` del `smd+` y solo miraba
+  `self.assets` si venía en `0.0`; `conid_inicio` conserva el último valor recibido e IB no re-emite el campo
+  al ejecutarse una orden. Corregido el 2026-11-04 — ver v6.0 del [[BACKLOG]].
 - **No usa `manager_sesion`** a propósito: ese flag mide *sesión de broker viva*, no *mercado
   abierto*. Si IB se cae un miércoles el fallback yfinance sigue dando precio real y la
   oportunidad es válida — gatear por sesión silenciaría de más. Además `manager_sesion` solo
