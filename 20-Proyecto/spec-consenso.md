@@ -282,6 +282,45 @@ Cada señal emite: `+1` favorable | `0` neutral | `-1` desfavorable | `None` abs
 
 ---
 
+## PUNTO DE ATENCIÓN — EL CÓDIGO NO ABSTIENE DONDE ESTA SPEC DICE QUE SÍ
+
+**Medido el 2026-11-06, abierto.** La tabla de arriba declara que `Net` abstiene *"si sin datos"* y
+`Flujo` *"si sin fh_count"*. `AppValuations/consenso_score.py` hace `return 0` en los dos
+(`:95` y `:182`), así que **entran al denominador como voto neutro** en vez de salir de él.
+`Cobertura` (`:148`) no tiene rama de abstención: 0 fondos cae en `< 5` y vota **−1**.
+`senal_consenso` (`:159`) tampoco exige un mínimo de votos activos.
+
+El filtro de `Class_Screener.py:2019-2030` solo saca del denominador los `None`, así que el efecto
+neto es un **sesgo hacia abajo en todo símbolo sin cobertura 13F**: ADR, small caps, recién
+listados, REIT cuyo CUSIP no cruza.
+
+Sobre `market` / `U4214563`: **295 de 1361 símbolos sin `fh_count`** (12 más con 1 a 4 fondos).
+De los que están en cartera:
+
+| Símbolo | `fh_count` | `consenso_suma` | `consenso_tag` | `categoriaActivo` |
+|---|---|---|---|---|
+| DLR | NULL | −1 | ↘ ALERTA | S |
+| SMR | NULL | −1 | ↘ ALERTA | N |
+| PHYS | NULL | −1 | ↘ ALERTA | N |
+| MPT | NULL | 0 | → NEUTRO | I |
+| LUNR | NULL | 0 | → NEUTRO | N |
+
+Caso testigo: **DLR** (Digital Realty Trust, REIT grande con cobertura real de analistas) vota
+`Ana +1, Val −1, Cob −1, Net 0, Flujo 0` = **−1 sobre n=5** → pct −0,20 → ALERTA. Aplicando lo que
+dice esta spec queda `+1 −1` = **0 sobre n=2** → **NEUTRO**. El tag cambia por el sesgo, no por la
+tesis del activo.
+
+De los 295 sin 13F, 289 tienen `consenso_tag` NULL (nunca calculado) y 6 tienen tag: 3 ALERTA y
+3 NEUTRO.
+
+**Por qué importa más que un tag suelto:** `consenso_suma` es feature viva del modelo Buy
+(`Class_IA_modelos.py:552`), así que el sesgo entra al entrenamiento. Y es el bloqueador de
+[[plan-market-crypto]]: una cripto sin ETF al contado no tiene 13F ni opciones ni analistas, de modo
+que **con sentimiento positivo igual lee ALERTA** (suma 0 sobre n=5) y con negativo **SALIDA**
+(−2/5). Se arregla antes de cargar filas de cripto, no después.
+
+---
+
 ## POPUP INSTITUCIONAL — ALIGNMENT CHECK
 
 Muestra alineación para activos en cartera cruzando tres fuentes:

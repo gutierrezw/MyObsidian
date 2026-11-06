@@ -180,9 +180,14 @@ Sin filtro de relevancia el sentimiento de DOT mide noticias de otra industria.
    escribiría en `market_sentiment` sin problema, pero ningún consumidor lo leería.
 
 El punto 3 **no se resuelve insertando 12 filas**: `market` está armada para equities — 13F,
-consenso, fundamentals, `categoriaActivo`. Es el mismo bloqueador que dejó pausado
-[[plan-crypto-gainscapture]] el 2026-08-22, y abrir `market` a cripto arrastra esa decisión
-completa, no solo el sentimiento.
+consenso, fundamentals, `categoriaActivo`. Abrir `market` a cripto arrastra esa decisión completa,
+no solo el sentimiento, y tiene su propio plan: **[[plan-market-crypto]]**, donde el sentimiento es
+la etapa 6 y depende de dos arreglos previos del Consenso.
+
+**Corregido el 2026-11-06 — este párrafo citaba mal su antecedente.** Decía que era *"el mismo
+bloqueador que dejó pausado [[plan-crypto-gainscapture]] el 2026-08-22"*. Ese plan **no está
+pausado**: sus 5 etapas se cerraron el 23-08 y su Etapa 0 se resolvió **sin** `market` (la categoría
+de Crypto vive en `inversion`). El bloqueador del sentimiento es real, pero es propio.
 
 ### Fuente: por qué Yahoo y no CoinMarketCap
 
@@ -217,4 +222,4 @@ feature, global. Candidato aparte, no reemplazo.
 - [[design-preservation]] — consume el patrón vía `select_preservation_context`
 - [[spec-convergia]] — el paquete `ConvergIA/` completo
 - [[ref-modelos-ia]] — por qué el modelo Buy dejó de consumir las 4 features de sentimiento
-- [[plan-crypto-gainscapture]] — el bloqueador de `market` sin símbolos Crypto
+- [[plan-market-crypto]] — el plan completo para abrir `market` a cripto; el sentimiento es su etapa 6

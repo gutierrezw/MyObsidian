@@ -515,8 +515,20 @@ Medido sobre las 170 oportunidades `tipo='buy'`:
 **Punto de atención.** El fallback es `0.0` para los 16 sin fila, y `consenso_suma = 0` es un
 valor **legítimo** (hay símbolos con suma 0). El modelo no puede distinguir *"Señal neutra"*
 de *"sin Señal"* — el mismo borde que `sentiment_patron` ya tiene documentado en
-[[design-sentimiento]]. Los 16 son el bloqueador de `market` sin cripto
-([[plan-crypto-gainscapture]]).
+[[design-sentimiento]].
+
+**Los 16 son la medición que justifica [[plan-market-crypto]]** (corregido el 2026-11-06: antes
+apuntaba a [[plan-crypto-gainscapture]], que está cerrado y resolvió su propio caso **sin** tocar
+`market`). Los 5 pares cripto de esta lista son la prueba de que el CSV de entrada del modelo Buy
+**ya trae filas cripto** — `csv_OptionBuy_write` (`Class_customer.py:697`) itera
+`DataHub.rebalanceo.items()` y toma `ranking` para todo lo que no es Stock — y de que sus tres
+features de Señal entran en `0.0`. Es el mismo defecto que el de las 4 features de sentimiento,
+en otra columna.
+
+Y antes de cargar esas filas hay que corregir el sesgo del Consenso: una cripto sin ETF al contado
+no tiene 13F, opciones ni analistas, y los votos `Net`/`Flujo`/`Cob` **no abstienen** aunque la spec
+diga que sí — ver [[spec-consenso]] § "El código no abstiene donde esta spec dice que sí". Cargar
+filas sin eso le daría al modelo ruido con signo en vez de una señal.
 
 ### Cambios aplicados
 
@@ -545,3 +557,5 @@ sentimiento; la decisión de arriba se evaluó sobre Buy.
 - [[ref-consenso]] — los 8 votos de la Señal, donde `Sent` es uno
 - [[design-sentimiento]] — por qué las 4 features estaban en 0
 - [[ref-oportunidades]] — de dónde salen las filas `oportunidadesbuysell`
+- [[plan-market-crypto]] — los 5 pares cripto con features en 0.0, y qué hay que arreglar antes
+- [[spec-consenso]] — el sesgo del denominador que afecta a `consenso_suma`

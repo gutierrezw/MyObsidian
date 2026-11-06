@@ -369,3 +369,19 @@ propuesta pasa por `/ok_SYMBOL` en Telegram, así que la validación de los umbr
 `min_roi 0.10 / min_ganancia 40` se hace mirando propuestas concretas y no órdenes ya puestas.
 Sigue en pie instrumentar los tres `continue` silenciosos de `_gains_capture_run`, que
 son la razón por la que GainsCapture no deja rastro en `symbol_decision_history`.
+
+---
+
+## Reversión parcial 2026-11-06 — este plan está cerrado, pero su Etapa 0 es una restricción activa
+
+Nada de lo cerrado acá se revierte. Lo que se corrige es **cómo se citaba este doc**: circulaba el
+argumento *"`market` sin símbolos Crypto bloquea GainsCapture"*, y eso dejó de ser cierto el
+2026-08-22, cuando la Etapa 0 se cerró con la **opción (b)** — la categoría de Crypto vive en
+`inversion`. El índice de `MEMORY.md` todavía marca este plan como *PAUSADO 2026-08-22*; no lo está.
+
+La consecuencia mira hacia adelante: como `_gains_capture_categorias(vehiculo, positions)` resuelve
+la categoría desde `positions` para todo lo que no es Stock, **cargar filas de cripto en `market`
+crearía un segundo valor posible** para el mismo símbolo — la objeción con la que se descartó la
+opción (a). Quien evalúe ese cambio tiene que decidir explícitamente quién manda.
+
+Ver [[plan-market-crypto]] § 0.
