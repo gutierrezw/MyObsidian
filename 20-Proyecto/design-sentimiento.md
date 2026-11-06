@@ -8,7 +8,10 @@
 Scanner de **sentimiento general de noticias** para todos los símbolos en cartera.
 No está orientado a temas tecnológicos — cubre toda la cartera sin distinción de sector.
 
-Alimenta el voto **`Sent`** del Consenso y las features de sentimiento del modelo.
+Alimenta el voto **`Sent`** del Consenso y las features de sentimiento del modelo **Sell**.
+**El modelo Buy ya no las consume** desde el 2026-11-06 — ver
+[[ref-modelos-ia]] § "Features del modelo Buy": el sentimiento es uno de los 8 votos de la Señal,
+así que mandar los dos al modelo lo entraba dos veces.
 
 ---
 
@@ -89,7 +92,7 @@ se ve o no se ve.
 | Consumidor | Ventana de fecha | Qué hace sin dato fresco |
 |---|---|---|
 | `Class_Screener.py:2029` — voto `Sent` del Consenso | **ninguna** (`MAX(fecha_hora)` sin filtro) | **Vota con el dato viejo** como si fuera de hoy |
-| `Class_IA_modelos.py` — 4 features del modelo | 7 días | Devuelve vacío y loguea `features ausentes rellenadas con 0.0` |
+| `Class_IA_modelos.py` — 4 features del modelo **Sell** | 7 días | Devuelve vacío y loguea `features ausentes rellenadas con 0.0` |
 | `Modulos_Mysql.py:3629 select_preservation_context` | **ninguna** (`ORDER BY fecha DESC LIMIT 1`) | Entrega a Claude el patrón viejo sin fecha |
 
 `load_latest_sentiment()` (`Modulos_Mysql.py:3054`) hace `MAX(fecha_hora) GROUP BY symbol`
@@ -201,10 +204,10 @@ feature, global. Candidato aparte, no reemplazo.
 |---|---|---|
 | 1 | Ventana de fecha en `load_latest_sentiment` — el voto `Sent` vota viejo | abierto |
 | 2 | Ventana de fecha en `select_preservation_context` — patrón viejo sin fecha a Claude | abierto |
-| 3 | `msa.fecha = CURDATE()` colapsa "no calculado" a 0.0 en las features | abierto |
+| 3 | `msa.fecha = CURDATE()` colapsa "no calculado" a 0.0 en las features | abierto — **solo Sell**, Buy dejó de usarlas el 06-11 |
 | 4 | Las dos etapas facturan a `ClaudeAPIS` leyendo la clave de `ClaudeAPIP` | abierto |
 | 5 | Logger "Sentimiento" registrado dos veces (`Class_debugging.py:400` y `:440`) | abierto |
-| 6 | `enriquecer_con_sentimiento` duplicado (`Class_IA_modelos.py:115` y `:610`) | abierto |
+| 6 | `enriquecer_con_sentimiento` duplicado (`Class_IA_modelos.py:115` y `:610`) | **cerrado 06-11** — la copia de Buy pasó a `enriquecer_con_features(df, features, columnas)`, genérico; Sell conserva la suya |
 | 7 | Crypto: mapa par→nombre + filtro de homónimos + decisión sobre `market` | no iniciado |
 
 ---
@@ -213,4 +216,5 @@ feature, global. Candidato aparte, no reemplazo.
 - [[ref-consenso]] — los votos del Consenso, donde entra `Sent`
 - [[design-preservation]] — consume el patrón vía `select_preservation_context`
 - [[spec-convergia]] — el paquete `ConvergIA/` completo
+- [[ref-modelos-ia]] — por qué el modelo Buy dejó de consumir las 4 features de sentimiento
 - [[plan-crypto-gainscapture]] — el bloqueador de `market` sin símbolos Crypto
