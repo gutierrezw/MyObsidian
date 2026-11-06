@@ -213,7 +213,7 @@ feature, global. Candidato aparte, no reemplazo.
 | 4 | Las dos etapas facturan a `ClaudeAPIS` leyendo la clave de `ClaudeAPIP` | abierto |
 | 5 | Logger "Sentimiento" registrado dos veces (`Class_debugging.py:400` y `:440`) | abierto |
 | 6 | `enriquecer_con_sentimiento` duplicado (`Class_IA_modelos.py:115` y `:610`) | **cerrado 06-11** — la copia de Buy pasó a `enriquecer_con_features(df, features, columnas)`, genérico; Sell conserva la suya |
-| 7 | Crypto: mapa par→nombre + filtro de homónimos + decisión sobre `market` | no iniciado |
+| 7 | Crypto: mapa par→nombre + filtro de homónimos + decisión sobre `market` | **es la etapa 6 de [[plan-market-crypto]]** — no se toca antes que sus etapas 1 y 4 |
 
 ---
 

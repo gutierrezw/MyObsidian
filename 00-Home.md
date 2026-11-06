@@ -42,6 +42,7 @@
 | [[20-Proyecto/ref-yahoo-loader\|Yahoo Finance Loader]] | Descarga de datos de mercado |
 | [[20-Proyecto/design-sentimiento\|Sentimiento]] | Análisis de sentimiento — flujo técnico |
 | [[20-Proyecto/design-gains-capture\|Gains Capture]] | Captura de ganancias |
+| [[20-Proyecto/plan-market-crypto\|market ↔ cripto]] | Cargar cripto en `market` para que la Señal sea feature del modelo Buy — plan de 8 etapas, prerequisito: la abstención del Consenso |
 
 ### Trading y portfolio
 | Doc | Descripción |
