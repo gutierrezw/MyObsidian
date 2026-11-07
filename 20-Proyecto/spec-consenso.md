@@ -258,7 +258,9 @@ Cada señal emite: `+1` favorable | `0` neutral | `-1` desfavorable | `None` abs
                      X / T → abstiene
 
   7. COBERTURA       fh_count                       +1 / 0 / -1
-                     ≥ 20 → +1 / ≥ 5 → 0 / < 5 → -1
+                     ≥ 20 → +1 / ≥ 5 → 0 / < 5 → -1   None si sin dato
+                     el -1 es para 1 a 4 fondos (cobertura baja
+                     medida); sin ningun fondo no hay medicion
   ──────────────────────────────────────────────────────────────────
 
          suma_votos_activos
@@ -278,46 +280,65 @@ Cada señal emite: `+1` favorable | `0` neutral | `-1` desfavorable | `None` abs
 
   Columna Consenso:  ↗ TENDENCIA  +4/7
                      (suma=+4 sobre 7 señales activas, 0 abstenciones)
+
+  Piso: con menos de MIN_VOTOS_SENAL = 3 votos activos no se emite
+  nivel (— S/D). Con n=1 o n=2 el pct lo decide un voto suelto sobre
+  un denominador diminuto y el nivel que salga no representa nada.
 ```
 
 ---
 
-## PUNTO DE ATENCIÓN — EL CÓDIGO NO ABSTIENE DONDE ESTA SPEC DICE QUE SÍ
+## ABSTENCIÓN — EL CÓDIGO NO ABSTENÍA DONDE ESTA SPEC DICE QUE SÍ (CERRADO 2026-11-07)
 
-**Medido el 2026-11-06, abierto.** La tabla de arriba declara que `Net` abstiene *"si sin datos"* y
-`Flujo` *"si sin fh_count"*. `AppValuations/consenso_score.py` hace `return 0` en los dos
-(`:95` y `:182`), así que **entran al denominador como voto neutro** en vez de salir de él.
-`Cobertura` (`:148`) no tiene rama de abstención: 0 fondos cae en `< 5` y vota **−1**.
-`senal_consenso` (`:159`) tampoco exige un mínimo de votos activos.
+La tabla de arriba declara que `Net` abstiene *"si sin datos"* y `Flujo` *"si sin fh_count"*.
+`AppValuations/consenso_score.py` hacía `return 0` en los dos, así que **entraban al denominador
+como voto neutro** en vez de salir de él; `Cobertura` no tenía rama de abstención (0 fondos caía en
+`< 5` y votaba **−1**) y `senal_consenso` no exigía un mínimo de votos activos. El filtro de
+`Class_Screener.py` solo saca del denominador los `None`, de modo que el efecto neto era un **sesgo
+hacia abajo en todo símbolo sin cobertura 13F**: ADR, small caps, recién listados, REIT cuyo CUSIP
+no cruza.
 
-El filtro de `Class_Screener.py:2019-2030` solo saca del denominador los `None`, así que el efecto
-neto es un **sesgo hacia abajo en todo símbolo sin cobertura 13F**: ADR, small caps, recién
-listados, REIT cuyo CUSIP no cruza.
+Hoy los tres abstienen cuando no hay `fh_count` y el piso es `MIN_VOTOS_SENAL = 3`. El −1 de
+`Cobertura` se conserva con 1 a 4 fondos: ahí la poca cobertura es un hecho medido, no ignorancia.
 
-Sobre `market` / `U4214563`: **295 de 1361 símbolos sin `fh_count`** (12 más con 1 a 4 fondos).
-De los que están en cartera:
+**El sesgo de Stock ya se había ido por el lado del dato, y eso revierte el criterio de validación
+que tenía escrito [[plan-market-crypto]].** El 2026-11-06 se midieron **295 de 1361 símbolos sin
+`fh_count`** y cinco casos en cartera — DLR, SMR y PHYS en ALERTA, MPT y LUNR en NEUTRO — con **DLR
+como caso testigo**: votaba `Ana +1, Val −1, Cob −1, Net 0, Flujo 0` = −1 sobre n=5 → ALERTA, y la
+spec lo dejaba en `+1 −1` = 0 sobre n=2 → NEUTRO. El criterio de validación era exactamente ese
+salto. **Ya no aplica:** el barrido de cusips siguió poblando y al 2026-11-07 DLR tiene **1.490
+fondos** (no 5) y es `→ NEUTRO` por dato propio; SMR 682 y MPT 626 en TENDENCIA, LUNR 413 en
+CONSENSO, PHYS fuera de `market` por el override ETF. De las **38 filas en cartera, 0 están sin
+`fh_count`** y ninguna en ALERTA. No era un defecto de fórmula: la fórmula leía una tabla incompleta.
 
-| Símbolo | `fh_count` | `consenso_suma` | `consenso_tag` | `categoriaActivo` |
-|---|---|---|---|---|
-| DLR | NULL | −1 | ↘ ALERTA | S |
-| SMR | NULL | −1 | ↘ ALERTA | N |
-| PHYS | NULL | −1 | ↘ ALERTA | N |
-| MPT | NULL | 0 | → NEUTRO | I |
-| LUNR | NULL | 0 | → NEUTRO | N |
+**Por eso el cambio se aplicó igual, y con riesgo cero.** Recalculadas las 38 filas con las
+funciones reales del módulo: **0 diferencias** contra el `consenso_tag` y el `consenso_suma`
+persistidos. Lo que se cierra no es el sesgo de Stock — ese se fue solo — sino el defecto que muerde
+a [[plan-market-crypto]]: una cripto sin ETF al contado no tiene 13F ni opciones ni analistas, así
+que el código viejo le daba **ALERTA en 3 de los 4 escenarios de sentimiento** y nunca podía darle
+un nivel positivo.
 
-Caso testigo: **DLR** (Digital Realty Trust, REIT grande con cobertura real de analistas) vota
-`Ana +1, Val −1, Cob −1, Net 0, Flujo 0` = **−1 sobre n=5** → pct −0,20 → ALERTA. Aplicando lo que
-dice esta spec queda `+1 −1` = **0 sobre n=2** → **NEUTRO**. El tag cambia por el sesgo, no por la
-tesis del activo.
+| Sentimiento | antes | ahora |
+|---|---|---|
+| +1 positivo | → NEUTRO  +0/4 | — S/D  +0/1 |
+| 0 neutro | ↘ ALERTA  −1/4 | — S/D  +0/1 |
+| −1 negativo | ↘ ALERTA  −2/4 | — S/D  +0/1 |
+| ausente | ↘ ALERTA  −1/3 | — S/D  +0/0 |
 
-De los 295 sin 13F, 289 tienen `consenso_tag` NULL (nunca calculado) y 6 tienen tag: 3 ALERTA y
-3 NEUTRO.
+**Un tag `— S/D` ya no persiste `consenso_suma = 0`, persiste NULL.** Sin eso el piso no servía de
+nada aguas abajo: `load_consenso_features` filtra `consenso_suma IS NOT NULL`, así que un 0 entra al
+modelo Buy (`Class_IA_modelos.py:552`) como **Señal neutra medida** y el modelo no puede distinguirlo
+de un consenso realmente neutro. Con NULL la fila simplemente no aporta la feature. Hoy ninguna fila
+de Stock cae en ese caso — las 38 tienen los 6 votos —, es la vía por la que entrará cripto.
 
-**Por qué importa más que un tag suelto:** `consenso_suma` es feature viva del modelo Buy
-(`Class_IA_modelos.py:552`), así que el sesgo entra al entrenamiento. Y es el bloqueador de
-[[plan-market-crypto]]: una cripto sin ETF al contado no tiene 13F ni opciones ni analistas, de modo
-que **con sentimiento positivo igual lee ALERTA** (suma 0 sobre n=5) y con negativo **SALIDA**
-(−2/5). Se arregla antes de cargar filas de cripto, no después.
+**Lo que esto no resuelve:** la cripto queda sin Señal, no con una Señal honesta. Con qué llenar el
+hueco — el candidato es el *taker buy ratio* diario de las klines que ya se descargan y se tiran —
+es la etapa 2 de [[plan-market-crypto]].
+
+**Punto de atención — 41 tags persistidos contra 38 filas en cartera.** Sobran **3 filas con
+`NEUTRO` crudo sin glifo** y **1 `▼ SALIDA` fuera de cartera**, residuos de un camino viejo.
+`refresh_consenso_tags` solo escribe `encartera = 'Y'`, así que nada los limpia y `Class_DashBot.py`
+tiene que comparar el texto pelado contra un set para que los gates no los lean mal.
 
 ---
 

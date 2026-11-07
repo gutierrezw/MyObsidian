@@ -244,7 +244,7 @@ etapa por etapa.**
 | # | Etapa | Qué se hace | Criterio de validación |
 |---|---|---|---|
 | **0** | ¿El modelo Buy ve cripto? | **YA VALIDADO** — [[ref-modelos-ia]] lo tiene medido: 16 de 170 filas sin fila en `market`, **5 son pares cripto** (`ADAUSDT`, `ZILUSDT`, `CGPTUSDT`, `ICPUSDT`, `FILUSDT`) | cerrado sin encender la app. Las 3 features de Señal entran en `0.0` para esas filas |
-| **1** | Abstención en el Consenso | alinear `consenso_score.py` con [[spec-consenso]]: `Net`/`Flujo` → `None` sin `fh_count`; `Cob` → rama `None`; mínimo de votos en `senal_consenso` | recalcular y comparar tags **antes/después** sobre los 295 sin 13F. DLR debe pasar de ALERTA a NEUTRO |
+| **1** | Abstención en el Consenso | **CERRADA 2026-11-07** — `Net`/`Flujo` devuelven `None` sin `fh_count`, `Cob` tiene rama `None` (conserva −1 con 1 a 4 fondos), piso `MIN_VOTOS_SENAL = 3`, y un tag `— S/D` persiste `consenso_suma` **NULL** en vez de 0 | **0 diferencias** sobre las 38 filas en cartera. El criterio escrito (DLR de ALERTA a NEUTRO) **quedó obsoleto**: DLR ya tiene 1.490 fondos y es NEUTRO por dato propio — motivo en [[spec-consenso]]. Un par cripto pasa de **ALERTA en 3 de 4 escenarios** a `— S/D` |
 | **2** | Qué reemplaza a `inst_score` y `fh_buy_ratio` | decidir: taker-buy ratio de las klines (candidato), o dejarlas en 0 y que el modelo aprenda el hueco | medir el taker-buy ratio de los 12 pares y ver si discrimina |
 | **3** | Dos arreglos de una línea | `POL-USD` → `POL28321-USD` en `convierte_ticket_crypto`; `audit_portfolio` enruta por esa función | POL devuelve supply; `audit_portfolio` en seco no borra filas de cripto |
 | **4** | Las filas | 12 de cartera primero, el top 50 después. `categoriaActivo` **NULL** para cripto (§0) | `load_consenso_features(B0000001)` devuelve las 12; GainsCapture sigue leyendo `inversion` |
@@ -254,6 +254,9 @@ etapa por etapa.**
 
 Las etapas 1 y 2 son el prerequisito: **sin ellas, las etapas 4 en adelante meten ruido con signo
 al modelo.**
+
+La etapa 1 **no deja a la cripto con Señal, la deja sin Señal** — que es lo correcto, pero el
+hueco sigue abierto hasta la etapa 2.
 
 ---
 
