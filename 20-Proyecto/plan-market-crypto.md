@@ -113,6 +113,14 @@ DLR es Digital Realty Trust, un REIT grande con cobertura real de analistas. Su 
 (Net y Flujo abstienen, Cob abstiene sin datos) queda `+1 −1` = **0 sobre n=2** → **NEUTRO**.
 **El tag cambia por el sesgo, no por la tesis.**
 
+**Confirmado el 2026-11-06 por el lado de los datos — el `fh_count` vacío era un hueco de carga,
+no ausencia de cobertura.** Ese día se cerró la cadena de cusips del 13F (`market` 1.036 → 1.165
+cusips) y DLR apareció con **5 fondos**; el barrido de los XML en disco muestra **5.959
+menciones** de su cusip. O sea el voto no estaba leyendo poca cobertura institucional: estaba
+leyendo una tabla incompleta y traduciéndolo a **−1**. Eso invierte el argumento: `None` no es
+una concesión al caso raro, es la única traducción honesta de *"todavía no lo sé"* — y los
+símbolos nuevos **siempre** entran por ese estado.
+
 De los 295 sin 13F, 289 tienen `consenso_tag` NULL (nunca calculado) y 6 tienen tag: 3 ALERTA,
 3 NEUTRO.
 
