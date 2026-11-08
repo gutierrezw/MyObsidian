@@ -164,6 +164,14 @@ Nada de lo que sigue cuesta una llamada nueva.
 `fh_buy_ratio`, que es trimestral y se publica con 45 días de retraso. Es el candidato natural a
 reemplazar `inst_score` / `fh_buy_ratio` en el vector de cripto.
 
+> **Reversión 2026-11-08 — se midió y no discrimina.** El párrafo de arriba se conserva porque era
+> el criterio con el que se abrió la etapa 2. Medido sobre los 12 pares del año en curso, el ratio
+> da Spearman **0,0104** contra el retorno del día siguiente: es ruido. Lo que sí hace es describir
+> **el día en curso** — Spearman **0,3029** contra el retorno del mismo día, que es el control que
+> prueba que el dato se lee bien. Es un descriptor coincidente, no un predictor. Detalle en § 4.4.
+>
+> Los 4 campos siguen valiendo para persistir (etapa 5): como dato de actividad, no como voto.
+
 Medido: 24 tickers de ETF/proxy de cripto → **0 en `market`, 0 en `fund_holdings`**
 (1.804.601 filas, 1.037 símbolos distintos, último reporte 2026-11-04, 0 sin resolver).
 
@@ -215,6 +223,42 @@ cruce de CUSIP con ella.
 > cuenta cripto, Yahoo devuelve NONE y **borra las filas como si estuvieran deslistadas.**
 > **Arreglo: una línea** — enrutar el ticker por la función.
 
+### 4.4 Cripto no lleva `inst_score` ni `fh_buy_ratio` — las cinco fuentes, medidas
+
+La etapa 2 se abrió para elegir el reemplazo. **No existe hoy.** No es una decisión de criterio: es
+el resultado de medir todo lo que tiene historia, sobre los 12 pares y la ventana del año en curso.
+
+| Candidato | Fuente | Spearman vs retorno futuro | Veredicto |
+|---|---|---|---|
+| **taker buy ratio** | klines spot (ya descargadas) | **0,0104** a +1d — y **0,3029** al mismo día | descriptor coincidente, no predictor |
+| **momentum de precio** 24/48/72 h y 7 d | klines spot | todos entre **−0,052 y +0,013** a +1/+3/+7 d | los signos **se contradicen entre pares** (ADA −0,2324 contra SOL +0,0747 a 7 d): un voto diría cosas opuestas según el par |
+| **funding rate** del perpetuo | `fapi/v1/fundingRate`, 500 registros = 166 días | **−0,044 / −0,043 / −0,040** diario | la única estructura es una monotonía contrarian débil en el retorno a 7 d (terciles +0,793 % / −0,047 % / −0,160 %), a Spearman −0,04 |
+| **long/short de cuentas + open interest** | `futures/data/*` | **no medible** | Binance sirve **31 días** (2026-10-08 → 11-07). 372 observaciones en un solo régimen |
+| **sentiment de la comunidad** | CoinGecko `/coins/{id}` | **no medible** | es un **valor puntual sin serie**. ADA marcaba 83,33 % positivo mientras caía 23,8 % en 30 días |
+
+Dos límites de cobertura encontrados al medir el funding, que valen para cualquier uso futuro del
+dato: **4 de los 12 pares** (CGPT, POL, VTHO, ZIL) tienen perpetuo solo desde el **2026-08-17** (83
+días contra 166), y esos mismos 4 cobran funding **cada 4 h (6 cortes diarios)** contra 8 h de los
+otros 8 — **el número crudo no es comparable entre pares** sin normalizar por intervalo.
+
+**Por qué el tercil de momentum da todo negativo:** 43–48 % de días positivos en los tres terciles.
+Eso es el **régimen** de 2026 en cripto, no una señal.
+
+**Lo que no existe como dato público, no como hueco de un proveedor.** Yahoo devuelve ~80 campos por
+par cripto y **ninguna clave de voto**: sin `recommendationKey`, sin `numberOfAnalystOpinions`, sin
+`heldPercentInstitutions`, sin `targetMeanPrice`. La misma llamada sobre DLR trae las cuatro
+(`strong_buy`, 32 analistas, 1,0296, 224,125). En cripto no hay analistas ni 13F porque no hay
+emisor que reporte.
+
+**Decisión: las tres features de Señal entran en `NULL` para cripto y el modelo trabaja sin ellas.**
+Es la alternativa que la etapa 2 ya tenía anotada. Con la etapa 1 cerrada el hueco es explícito
+—`consenso_suma` NULL, tag `— S/D`— y no un 0 que el modelo leería como una Señal neutral medida.
+
+> **Punto de atención — un campo de Yahoo sí sirve, para la etapa 5.** `volume24HrMarketCapPercent`
+> (volumen 24 h sobre capitalización) es exactamente la **Rotación** que el Screener calcula para
+> acciones con `floatShares`, la columna que hoy queda vacía en cripto. No es un voto de dirección
+> —es actividad, como el taker ratio— pero llena un hueco real sin cálculo propio ni descarga nueva.
+
 ---
 
 ## 5. Fuentes externas — qué aportan y qué no
@@ -234,6 +278,31 @@ Lo único que no se puede sacar de Yahoo/Binance es **el ranking** — y es just
 define el universo. Fear & Greed es sentimiento **de mercado, no por símbolo**: sería otra feature,
 global, no entra en `market_sentiment.symbol`.
 
+### 5.1 Revisados el 2026-11-08 — ninguno cambia la decisión
+
+| Proveedor | Qué vende | Veredicto |
+|---|---|---|
+| **TAAPI.IO** | indicadores técnicos (RSI, MACD, Bollinger) | **descartado sin medir**: son funciones del precio y se calculan de las klines que ya se descargan. Pagar por un cálculo propio |
+| **CoinGlass** | long/short de cuentas y open interest **con historia completa** | **el único con el dato correcto.** Sin tier gratuito: Hobbyist 29 USD/mes (intervalo 4 h o mayor — el diario entra) y marcado *personal use only*; comercial arranca en 299 USD/mes |
+| **Free Crypto API** | Supertrend + fear & greed | Supertrend es precio otra vez; fear & greed es de mercado, no por símbolo |
+| **CoinAPI** | OHLCV multi-exchange, índices, volatilidad | más precio y más volumen, de más fuentes. No es posicionamiento por símbolo |
+
+**Lo que decide el caso de CoinGlass es una medición propia, no el precio:** el **funding rate es el
+precio del desequilibrio long/short** — es lo que paga el lado sobrecargado para que el perpetuo
+siga pegado al spot. Ya está medido con 166 días gratis de Binance y dio Spearman **−0,044** (§ 4.4).
+Si el posicionamiento tuviera señal direccional, su contrapartida económica la mostraría. No es
+prueba definitiva —el arbitraje puede comprimir el funding— pero invierte la carga de la prueba: se
+pagarían **348 USD/año para mirar el mismo fenómeno desde otro ángulo**, y la medición recién se
+podría hacer *después* de pagar.
+
+Y hay vía gratis al mismo dato: **acumular los 30 días rodantes de Binance**. CoinGlass no entrega
+nada que Binance no dé hacia adelante — solo adelanta la medición ~6 meses.
+
+**El espacio no es la restricción.** Medido contra `diaria_performance`, la serie diaria más
+parecida de `bdinv`: **274 bytes por fila**. Los 12 pares con una fila diaria son **1,2 MB/año**;
+50 pares, 5,0 MB/año; 50 pares cada 4 h, 30 MB/año. `bdinv` pesa hoy 571,5 MB y `fund_holdings` sola
+son 494 MB de esos. La restricción es **el tiempo**: 6 meses hasta tener muestra.
+
 ---
 
 ## 6. Plan de ejecución
@@ -245,7 +314,7 @@ etapa por etapa.**
 |---|---|---|---|
 | **0** | ¿El modelo Buy ve cripto? | **YA VALIDADO** — [[ref-modelos-ia]] lo tiene medido: 16 de 170 filas sin fila en `market`, **5 son pares cripto** (`ADAUSDT`, `ZILUSDT`, `CGPTUSDT`, `ICPUSDT`, `FILUSDT`) | cerrado sin encender la app. Las 3 features de Señal entran en `0.0` para esas filas |
 | **1** | Abstención en el Consenso | **CERRADA 2026-11-07** — `Net`/`Flujo` devuelven `None` sin `fh_count`, `Cob` tiene rama `None` (conserva −1 con 1 a 4 fondos), piso `MIN_VOTOS_SENAL = 3`, y un tag `— S/D` persiste `consenso_suma` **NULL** en vez de 0 | **0 diferencias** sobre las 38 filas en cartera. El criterio escrito (DLR de ALERTA a NEUTRO) **quedó obsoleto**: DLR ya tiene 1.490 fondos y es NEUTRO por dato propio — motivo en [[spec-consenso]]. Un par cripto pasa de **ALERTA en 3 de 4 escenarios** a `— S/D` |
-| **2** | Qué reemplaza a `inst_score` y `fh_buy_ratio` | decidir: taker-buy ratio de las klines (candidato), o dejarlas en 0 y que el modelo aprenda el hueco | medir el taker-buy ratio de los 12 pares y ver si discrimina |
+| **2** | Qué reemplaza a `inst_score` y `fh_buy_ratio` | **CERRADA 2026-11-08 — nada lo reemplaza.** Las tres features de Señal quedan **NULL** para cripto y el modelo trabaja sin ellas (§ 4.4) | los 3 candidatos con historia medidos sobre los 12 pares y el año en curso: taker ratio **0,0104**, momentum **−0,052 a +0,013**, funding **−0,044**. Los 2 que faltan **no son medibles**: Binance sirve 31 días de long/short y el sentiment de CoinGecko es un valor puntual. Yahoo **no tiene ninguna clave de voto** para cripto |
 | **3** | Dos arreglos de una línea | `POL-USD` → `POL28321-USD` en `convierte_ticket_crypto`; `audit_portfolio` enruta por esa función | POL devuelve supply; `audit_portfolio` en seco no borra filas de cripto |
 | **4** | Las filas | 12 de cartera primero, el top 50 después. `categoriaActivo` **NULL** para cripto (§0) | `load_consenso_features(B0000001)` devuelve las 12; GainsCapture sigue leyendo `inversion` |
 | **5** | Lo que ya se tira | persistir supply/marketCap del `info` de Yahoo y el taker-buy de las klines | 11 de 12 con supply, 12 de 12 con ratio, **sin descargas nuevas** |
@@ -253,10 +322,13 @@ etapa por etapa.**
 | **7** | Reentrenar Buy | con las features de cripto poblando | capturar métricas **antes**: `modelo_buyv01_metrics.pkl` se sobreescribe en cada entrenamiento |
 
 Las etapas 1 y 2 son el prerequisito: **sin ellas, las etapas 4 en adelante meten ruido con signo
-al modelo.**
+al modelo.** Las dos quedaron cerradas el 2026-11-07 y el 2026-11-08, así que **la etapa 3 ya no
+está bloqueada**.
 
-La etapa 1 **no deja a la cripto con Señal, la deja sin Señal** — que es lo correcto, pero el
-hueco sigue abierto hasta la etapa 2.
+La etapa 1 **no deja a la cripto con Señal, la deja sin Señal**. La etapa 2 confirma que eso es el
+estado final, no un tramo intermedio: el hueco **no se llena** porque el dato que lo llenaría no
+existe con historia. Queda explícito (`consenso_suma` NULL, tag `— S/D`) en vez de un 0 que el
+modelo leería como una Señal neutral medida.
 
 ---
 
@@ -269,6 +341,9 @@ hueco sigue abierto hasta la etapa 2.
   Stock.
 - **No se borra una fila que sale del top 50** — se desmarca.
 - **No se contrata plan pago** de CoinGecko/CMC: el free alcanza para 50 monedas por día.
+- **No se contrata CoinGlass** (29 USD/mes) — es el único proveedor con la historia de long/short,
+  pero el funding rate, que es el precio de ese mismo desequilibrio, ya se midió gratis y dio ruido
+  (§ 5.1). No se paga por un insumo sin validar, y la vía gratis para validarlo existe.
 
 ---
 
