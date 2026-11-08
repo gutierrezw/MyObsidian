@@ -523,8 +523,9 @@ Hoy el filtro es `OR` de las tres y el método devuelve **1.296** símbolos en v
 
 **Precisión — el arreglo no cambia ninguna predicción de hoy.** Medido el 2026-11-08 sobre
 `oportunidadesbuysell` (`tipo='buy'`, 165 filas / **50 símbolos distintos**): 40 tienen fila en
-`market` y **las 40 traen las tres features**; los 10 sin fila son los 5 pares cripto más
-**BIL, PHYS, TLT y VGSH**. Como `enriquecer_con_features` mapea desde `df["symbol"]`, los 1.252
+`market` y **las 40 traen las tres features**; los 10 sin fila son **6 pares cripto**
+(`ADAUSDT`, `CGPTUSDT`, `FILUSDT`, `ICPUSDT`, `POLUSDT`, `ZILUSDT`) y 4 ETF
+(**BIL, PHYS, TLT, VGSH**). Como `enriquecer_con_features` mapea desde `df["symbol"]`, los 1.252
 símbolos que el filtro devolvía ahora no aparecen en el DataFrame. El arreglo es el piso para
 cuando el universo de oportunidades salga de la cartera — que es donde `consenso_suma` nunca se
 calcula —, no una corrección de lo que el modelo predice hoy. **PHYS es nuevo en la lista**: el
