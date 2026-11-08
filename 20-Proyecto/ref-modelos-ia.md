@@ -512,6 +512,24 @@ Medido sobre las 170 oportunidades `tipo='buy'`:
 `load_sentiment_features`: las oportunidades de compra incluyen símbolos fuera de cartera
 (PFE, BP, ABX, CVS tienen `encartera='N'` y Señal calculada). Filtrar por cartera los perdería.
 
+**Pero sí filtraba por `consenso_suma IS NOT NULL`, que es casi lo mismo** (corregido el
+2026-11-08). `consenso_suma` solo la calcula `refresh_consenso_tags`, que recorre
+`encartera='Y'`: está poblada en **44 de 1.359** filas de `market`. Exigirla descartaba **1.252
+filas que sí tienen las otras dos medidas** — 1.250 con `inst_score` y 1.118 con `fh_buy_ratio`.
+Y lo descartado no queda vacío: `enriquecer_con_features` rellena el símbolo ausente con `0.0`,
+así que el modelo recibiría una Señal neutral **medida** donde hay dato. Testigos: V
+(`inst_score` 2,1593 / `buy_ratio` 0,5086 / 4.874 fondos), APH (2,1245 / 0,7393), MA, UNH, DLR.
+Hoy el filtro es `OR` de las tres y el método devuelve **1.296** símbolos en vez de 44.
+
+**Precisión — el arreglo no cambia ninguna predicción de hoy.** Medido el 2026-11-08 sobre
+`oportunidadesbuysell` (`tipo='buy'`, 165 filas / **50 símbolos distintos**): 40 tienen fila en
+`market` y **las 40 traen las tres features**; los 10 sin fila son los 5 pares cripto más
+**BIL, PHYS, TLT y VGSH**. Como `enriquecer_con_features` mapea desde `df["symbol"]`, los 1.252
+símbolos que el filtro devolvía ahora no aparecen en el DataFrame. El arreglo es el piso para
+cuando el universo de oportunidades salga de la cartera — que es donde `consenso_suma` nunca se
+calcula —, no una corrección de lo que el modelo predice hoy. **PHYS es nuevo en la lista**: el
+override `_ETF_SYMBOLS` hace que `audit_portfolio` lo borre de `market`.
+
 **Punto de atención.** El fallback es `0.0` para los 16 sin fila, y `consenso_suma = 0` es un
 valor **legítimo** (hay símbolos con suma 0). El modelo no puede distinguir *"Señal neutra"*
 de *"sin Señal"* — el mismo borde que `sentiment_patron` ya tiene documentado en
@@ -534,9 +552,16 @@ filas sin eso le daría al modelo ruido con signo en vez de una señal.
 
 | Archivo | Cambio |
 |---|---|
-| `Modulos_Mysql.py` | `load_consenso_features(account)` → `{symbol: {consenso_suma, inst_score, fh_buy_ratio}}` |
+| `Modulos_Mysql.py` | `load_consenso_features(account)` → `{symbol: {consenso_suma, inst_score, fh_buy_ratio}}`. **2026-11-08:** el `WHERE` filtra por **cualquiera** de las tres, no por `consenso_suma` sola |
 | `Class_IA_modelos.py` | `ModeloOportunidadesBuy.COLS_CONSENSO`; `enriquecer_con_sentimiento` → `enriquecer_con_features(df, features, columnas)` (genérico, solo en la clase Buy); `scalar_features` sustituye las 4 de sentimiento por las 3 de Señal; llamada en `predecir_oportunidades` |
 | `Class_SystemStatus.py` | entrenamiento Buy del panel (`:3755`) — tiene que quedar **simétrico** con la predicción o hay desvío entre entrenamiento y servicio |
+
+**El modelo vigente todavía no tiene las 3 features.** `modelo_buyv01.pkl`
+(`deploy/tmp/`, no `AppOO/tmp/`) es del **2026-11-05 05:37** y lleva **16** features, las 12 de
+precio más las 4 de sentimiento: precede en un día a `efe52a3` (2026-11-06), el commit que pegó
+el enriquecido al entrenamiento del panel. Las 3 columnas se descartan en
+`X_nuevo = df[self.modelo.feature_names_in_]`. La tabla de arriba describe el **próximo**
+entrenamiento, no el pkl en disco — por eso el pendiente 3 sigue abierto.
 
 **La clase Sell no se tocó.** Conserva `enriquecer_con_sentimiento` y sus 4 features de
 sentimiento; la decisión de arriba se evaluó sobre Buy.
