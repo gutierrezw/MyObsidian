@@ -327,7 +327,7 @@ etapa por etapa.**
 | **1** | Abstención en el Consenso | **CERRADA 2026-11-07** — `Net`/`Flujo` devuelven `None` sin `fh_count`, `Cob` tiene rama `None` (conserva −1 con 1 a 4 fondos), piso `MIN_VOTOS_SENAL = 3`, y un tag `— S/D` persiste `consenso_suma` **NULL** en vez de 0 | **0 diferencias** sobre las 38 filas en cartera. El criterio escrito (DLR de ALERTA a NEUTRO) **quedó obsoleto**: DLR ya tiene 1.490 fondos y es NEUTRO por dato propio — motivo en [[spec-consenso]]. Un par cripto pasa de **ALERTA en 3 de 4 escenarios** a `— S/D` |
 | **2** | Qué reemplaza a `inst_score` y `fh_buy_ratio` | **CERRADA 2026-11-08 — nada lo reemplaza.** Las tres features de Señal quedan **NULL** para cripto y el modelo trabaja sin ellas (§ 4.4) | los 3 candidatos con historia medidos sobre los 12 pares y el año en curso: taker ratio **0,0104**, momentum **−0,052 a +0,013**, funding **−0,044**. Los 2 que faltan **no son medibles**: Binance sirve 31 días de long/short y el sentiment de CoinGecko es un valor puntual. Yahoo **no tiene ninguna clave de voto** para cripto |
 | **3** | Dos arreglos de una línea | **CERRADA 2026-11-08.** `POL-USD` → `POL28321-USD` en `convierte_ticket_crypto` (`Modulos_Utilitarios.py:468`); `audit_portfolio` enruta el ticker por esa función (`Class_Screener.py:2858`) | ambos verificados: `POL28321-USD` devuelve `circulatingSupply` 10.646.122.496, y en seco la función no modifica ninguno de los 38 símbolos en cartera en `market` (§ 4.1, § 4.3) |
-| **4** | Las filas | 12 de cartera primero, el top 50 después. `categoriaActivo` **NULL** para cripto (§0) | **el criterio escrito es inalcanzable** y se reemplaza (2026-11-08): con la etapa 1 cerrada un par cripto persiste `consenso_suma` **NULL**, así que `load_consenso_features` solo lo devuelve por el `OR` de `inst_score`/`fh_buy_ratio`, que la etapa 2 dejó NULL a propósito. Lo verificable es que la fila exista en `market` con `categoriaActivo` NULL y que GainsCapture siga leyendo `inversion`. Y hay un segundo borde: el método toma **una** `account` y el panel le pasa la de Stock, así que cripto (`B0000001`) no entra al dict aunque tenga fila |
+| **4** | Las filas | 12 de cartera primero, el top 50 después. `categoriaActivo` **`'C'`** para cripto — **no NULL**, ver la reversión en § 7 | **IMPLEMENTADA 2026-11-08 para los 12 de cartera**; el top 50 queda pendiente. El criterio escrito era doblemente inalcanzable: (a) `market.categoriaActivo` es **`char(4) NOT NULL`**, así que NULL nunca fue posible, y (b) con la etapa 1 cerrada un par persiste `consenso_suma` NULL, así que `load_consenso_features` solo lo devuelve por el `OR` de `inst_score`/`fh_buy_ratio`, que la etapa 2 dejó NULL a propósito. Lo verificable es que la fila exista en `market` con `categoriaActivo = 'C'` y que GainsCapture siga leyendo `inversion`. Segundo borde abierto: el método toma **una** `account` y el panel le pasa la de Stock, así que cripto (`B0000001`) no entra al dict aunque tenga fila |
 | **5** | Lo que ya se tira | persistir supply/marketCap del `info` de Yahoo y el taker-buy de las klines | 11 de 12 con supply, 12 de 12 con ratio, **sin descargas nuevas** |
 | **6** | Sentimiento | mapa par→nombre (12 filas) + filtro de homónimos. Ver [[design-sentimiento]] pendiente #7 | el `EXISTS` contra `market` resuelve; "Polkadot" no trae noticias de wellness |
 | **7** | Reentrenar Buy | con las features de cripto poblando | capturar métricas **antes**: `modelo_buyv01_metrics.pkl` se sobreescribe en cada entrenamiento |
@@ -345,8 +345,16 @@ modelo leería como una Señal neutral medida.
 
 ## 7. Lo que NO se hace
 
-- **No se toca `categoriaActivo` de cripto en `market`** — queda NULL; la fuente sigue siendo
-  `inversion` ([[plan-crypto-gainscapture]] Etapa 0, opción b).
+- ~~**No se toca `categoriaActivo` de cripto en `market`** — queda NULL~~ → **REVERTIDO
+  2026-11-08: se escribe `'C'`.** Dos motivos medidos, ninguno conocido al escribir el plan. Uno,
+  la columna es **`char(4) NOT NULL`**: NULL no era una opción, y lo que quedaba era `''` o un
+  valor. Dos, **`MarketScreen.insert` escribe `'N'` por default** cuando la categoría no viene en
+  `upd` (`Modulos_Mysql.py:2068`), y `'N'` es la categoría que toma GainsCapture — un par que
+  entrara sin decisión nacía en la peor casilla. `'C'` sigue el criterio ya vigente de `'X'` para
+  ETF: la columna mezcla valuación por dividendos (I/S/N) con tipo de activo (X) desde antes.
+  **La fuente de GainsCapture no cambia**: `_gains_capture_categorias` (`Class_DashBot.py:1035`)
+  para Crypto lee `inversion`, no `market`, así que la `'C'` no lo alcanza
+  ([[plan-crypto-gainscapture]] Etapa 0, opción b sigue en pie).
 - **No entra BotCrypto** (`B0000002`) — dos dueños sobre la misma posición.
 - **No se migran las columnas de equity** — las ~28 sin sentido quedan NULL, no se borran: las usa
   Stock.
