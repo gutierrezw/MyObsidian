@@ -192,6 +192,10 @@ columna nueva ni duplicar el símbolo.
 > `{"VRLA": "VRLAF", "POL-USD": "MATIC-USD"}`, y `MATIC-USD` también devuelve `None` en Yahoo
 > (`quoteType` NONE). El vivo es **`POL28321-USD`**, que no se deriva del par. Es la razón por la
 > que POL es el único de los 12 sin datos de supply. **Arreglo: una línea en ese diccionario.**
+>
+> **Resuelto 2026-11-08 (etapa 3).** `Modulos_Utilitarios.py:468` apunta a `POL28321-USD`.
+> Verificado contra Yahoo: `POL-USD` → NONE, `MATIC-USD` → NONE, `POL28321-USD` →
+> CRYPTOCURRENCY, precio 0,08987, `circulatingSupply` 10.646.122.496.
 
 ### 4.2 Las columnas de supply se reusan, no se crean
 
@@ -222,6 +226,13 @@ cruce de CUSIP con ella.
 > dos casos: ETF/trust, y `if not qt or qt == "NONE"` → deslistado. Con `ADAUSDT` guardado y una
 > cuenta cripto, Yahoo devuelve NONE y **borra las filas como si estuvieran deslistadas.**
 > **Arreglo: una línea** — enrutar el ticker por la función.
+>
+> **Resuelto 2026-11-08 (etapa 3).** `Class_Screener.py:2858` es
+> `yf.Ticker(convierte_ticket_crypto(sym)).info`. Los demás usos de `sym` en el método quedaron
+> **sin tocar a propósito**: van contra la BD (`market.delete`, `mark_booktrading_delisted`,
+> `market.update`, `update_market_cusip`) o contra EDGAR (`_resolve_cusip_from_edgar`), y ahí
+> el símbolo tiene que ser el guardado. Validado en seco: de los **38** símbolos en cartera en
+> `market`, la función no modifica **ninguno**.
 
 ### 4.4 Cripto no lleva `inst_score` ni `fh_buy_ratio` — las cinco fuentes, medidas
 
@@ -315,7 +326,7 @@ etapa por etapa.**
 | **0** | ¿El modelo Buy ve cripto? | **YA VALIDADO** — [[ref-modelos-ia]] lo tiene medido: 16 de 170 filas sin fila en `market`, **5 son pares cripto** (`ADAUSDT`, `ZILUSDT`, `CGPTUSDT`, `ICPUSDT`, `FILUSDT`) | cerrado sin encender la app. Las 3 features de Señal entran en `0.0` para esas filas |
 | **1** | Abstención en el Consenso | **CERRADA 2026-11-07** — `Net`/`Flujo` devuelven `None` sin `fh_count`, `Cob` tiene rama `None` (conserva −1 con 1 a 4 fondos), piso `MIN_VOTOS_SENAL = 3`, y un tag `— S/D` persiste `consenso_suma` **NULL** en vez de 0 | **0 diferencias** sobre las 38 filas en cartera. El criterio escrito (DLR de ALERTA a NEUTRO) **quedó obsoleto**: DLR ya tiene 1.490 fondos y es NEUTRO por dato propio — motivo en [[spec-consenso]]. Un par cripto pasa de **ALERTA en 3 de 4 escenarios** a `— S/D` |
 | **2** | Qué reemplaza a `inst_score` y `fh_buy_ratio` | **CERRADA 2026-11-08 — nada lo reemplaza.** Las tres features de Señal quedan **NULL** para cripto y el modelo trabaja sin ellas (§ 4.4) | los 3 candidatos con historia medidos sobre los 12 pares y el año en curso: taker ratio **0,0104**, momentum **−0,052 a +0,013**, funding **−0,044**. Los 2 que faltan **no son medibles**: Binance sirve 31 días de long/short y el sentiment de CoinGecko es un valor puntual. Yahoo **no tiene ninguna clave de voto** para cripto |
-| **3** | Dos arreglos de una línea | `POL-USD` → `POL28321-USD` en `convierte_ticket_crypto`; `audit_portfolio` enruta por esa función | POL devuelve supply; `audit_portfolio` en seco no borra filas de cripto |
+| **3** | Dos arreglos de una línea | **CERRADA 2026-11-08.** `POL-USD` → `POL28321-USD` en `convierte_ticket_crypto` (`Modulos_Utilitarios.py:468`); `audit_portfolio` enruta el ticker por esa función (`Class_Screener.py:2858`) | ambos verificados: `POL28321-USD` devuelve `circulatingSupply` 10.646.122.496, y en seco la función no modifica ninguno de los 38 símbolos en cartera en `market` (§ 4.1, § 4.3) |
 | **4** | Las filas | 12 de cartera primero, el top 50 después. `categoriaActivo` **NULL** para cripto (§0) | `load_consenso_features(B0000001)` devuelve las 12; GainsCapture sigue leyendo `inversion` |
 | **5** | Lo que ya se tira | persistir supply/marketCap del `info` de Yahoo y el taker-buy de las klines | 11 de 12 con supply, 12 de 12 con ratio, **sin descargas nuevas** |
 | **6** | Sentimiento | mapa par→nombre (12 filas) + filtro de homónimos. Ver [[design-sentimiento]] pendiente #7 | el `EXISTS` contra `market` resuelve; "Polkadot" no trae noticias de wellness |
