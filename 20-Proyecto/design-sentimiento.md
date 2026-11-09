@@ -92,7 +92,7 @@ se ve o no se ve.
 | Consumidor | Ventana de fecha | Qué hace sin dato fresco |
 |---|---|---|
 | `Class_Screener.py:2029` — voto `Sent` del Consenso | **ninguna** (`MAX(fecha_hora)` sin filtro) | **Vota con el dato viejo** como si fuera de hoy |
-| `Class_IA_modelos.py` — 4 features del modelo **Sell** | 7 días | Devuelve vacío y loguea `features ausentes rellenadas con 0.0` |
+| `Class_IA_modelos.py` — 4 features del modelo **Sell** | 7 días | Devuelve vacío y rellena con `0.0`. **Desde el 2026-11-08 el aviso es `debug`, o sea mudo** (el logger `ClassMoodeloIA` está en WARNING): la línea salía en cada corrida de los dos modelos y no aportaba nada nuevo — el relleno con `0.0` está documentado acá y en [[ref-modelos-ia]]. Para volver a verla, bajar el logger a DEBUG desde el panel Debugging |
 | `Modulos_Mysql.py:3629 select_preservation_context` | **ninguna** (`ORDER BY fecha DESC LIMIT 1`) | Entrega a Claude el patrón viejo sin fecha |
 
 `load_latest_sentiment()` (`Modulos_Mysql.py:3054`) hace `MAX(fecha_hora) GROUP BY symbol`
