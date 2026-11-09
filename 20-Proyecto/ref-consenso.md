@@ -128,6 +128,32 @@ Detalle completo del pipeline de sentimiento → [[design-sentimiento]]
 
 ---
 
+## 7b. Cripto — el Consenso no aplica, y por eso la Señal son dos ventanas
+
+Los 8 votos salen de 13F, analistas y dividendos. Para un par cripto **los 8 se abstienen**: `Net`, `Opt`,
+`Flujo` y `Cob` dependen de los `fh_*` del 13F, `Ana` de `analyst_rec`, `Val` ve `categoriaActivo = 'C'` y
+devuelve `None`, `Mod` lee los CSV del modelo de Stock y `Sent` el sentimiento de Stock. Con
+`MIN_VOTOS_SENAL = 3` el resultado es `— S/D`, y en la BD los 19 pares tienen `consenso_suma` y
+`consenso_tag` **NULL**.
+
+Por eso la ventana de Señal se partió en dos (2026-11-09):
+
+| Ventana | Botón | Fuente | Orden |
+|---|---|---|---|
+| Señal Stock | `Señal` | `load_cartera_inst(cuenta_stock)` | tag del Consenso |
+| Señal Cripto | `Señal Cripto` | `load_cartera_inst(cuentas, categoria="C")` | posición en el rango de 52 semanas |
+
+La ventana de cripto **no inventa un score**. Ordena y colorea por la posición del precio dentro del rango de
+52 semanas, que es la dimensión con la que ya se valúa el vehículo —el objetivo de la cartera es el máximo de
+52 semanas—, y lo dice en el encabezado: *"el Consenso 13F/analistas no aplica a cripto"*.
+
+Cuando existan votos nativos de cripto (Dominancia BTC, Market Cap Trend, Fear & Greed — `spec-convergia.md`
+§5.3, BACKLOG 106) la columna Señal entra en esa ventana. Hoy no se dibuja una columna vacía.
+
+Medición del 2026-11-09 y el punto de atención de las stablecoins: `CLAUDE.md` § "Señal — dos ventanas".
+
+---
+
 ## 8. Archivos clave
 
 | Archivo | Qué hace |
