@@ -351,6 +351,34 @@ estado final, no un tramo intermedio: el hueco **no se llena** porque el dato qu
 existe con historia. Queda explícito (`consenso_suma` NULL, tag `— S/D`) en vez de un 0 que el
 modelo leería como una Señal neutral medida.
 
+### 6.1 La etapa 4 destapó un `-1121` en los 19 pares — la conversión no era nueva, el vehículo sí
+
+`dividends_en_market_stock` convierte el ticket en la primera línea de su lazo
+(`ticket = convierte_ticket_crypto(symbol)`, `DashMain.py:1949`, vivo desde `0ad6bb8`) y le pasaba
+ese nombre a `ts_yfinance_symbol`. Para Stock es inocuo: la función solo transforma `VRLA` →
+`VRLAF`. Al dejar entrar a Crypto al método, el nombre ya convertido llegó a la rama de Binance —
+pero **`get_yfinance` convierte sola**: nombre Yahoo para `yf.Ticker`, par original para
+`get_klines_info`. Así que Binance recibía `BNB-USD` y respondía `-1121 Invalid symbol`.
+
+Medido en el log del 2026-11-09: **19 fallos por ciclo**, uno por par, con `x-mbx-used-weight-1m`
+de 234 a 450 en un minuto — sin `desde`/`hasta` el rango de `get_klines_info` es de 1800 días y
+excede el techo de 1000, así que son **dos llamadas por par**. La huella que lo cierra es
+`POL28321-USD` en el log: esa cadena solo sale del override de `convierte_ticket_crypto`.
+
+**Yahoo no se vio afectado, y por eso la etapa 5a midió bien.** La conversión es idempotente sobre
+un `-USD` —el override de POL incluido—, así que `yf.Ticker` recibía exactamente lo que recibe
+ahora. Lo que se perdía eran las klines: `datos` volvía vacío y el par quedaba sin `datos_tecnicos`
+y sin `lotSize`.
+
+**El fallo no se cacheaba, a propósito.** `use_dataframe_cache` no guarda resultados vacíos para
+permitir el reintento (`Class_DataFrame.py:165`), así que los 19 se repetían en cada ciclo —
+verificado a las 06:08 y de nuevo a las 06:35. Con el arreglo el resultado deja de ser vacío y
+entra a `CacheHut` (TTL 30 min), así que las llamadas a Binance **bajan**, no suben.
+
+Corregido el 2026-11-09 (`DashMain.py:1950`): en Crypto se pasa el par original, Stock sigue con el
+convertido. Verificado en seco sobre los 19 pares — lo que recibía Binance reproduce exactamente
+los 19 nombres del log, y lo que recibe Yahoo no cambia.
+
 ---
 
 ## 7. Lo que NO se hace
