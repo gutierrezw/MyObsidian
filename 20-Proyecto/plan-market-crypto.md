@@ -171,6 +171,16 @@ reemplazar `inst_score` / `fh_buy_ratio` en el vector de cripto.
 > prueba que el dato se lee bien. Es un descriptor coincidente, no un predictor. Detalle en § 4.4.
 >
 > Los 4 campos siguen valiendo para persistir (etapa 5): como dato de actividad, no como voto.
+>
+> **Reversión 2026-11-08 — la etapa 5b se descarta: los 4 campos no se persisten.** La línea de arriba se
+> conserva porque era el criterio con el que se abrió la etapa 5. Lo que la revierte: **no hay tabla destino
+> ni consumidor.** `market` es una fila por símbolo y estos 4 campos son **por vela**, así que persistirlos
+> pide una tabla nueva de series — y el único insumo que ya se midió (el taker ratio) quedó en Spearman
+> **0,0104**, o sea nada que alimentar. El único punto de inserción posible es el parser de
+> `Class_DataFrame.py:575-625`, que es el DataFrame del que cuelgan **todos** los indicadores de Crypto:
+> tocarlo para guardar un dato sin consumidor es riesgo sin contrapartida. Si en algún momento hay una tabla
+> de series diarias de cripto, el dato se vuelve a tirar desde las mismas klines sin perder nada: **las velas
+> se descargan igual**, el parser solo elige qué columnas conserva.
 
 Medido: 24 tickers de ETF/proxy de cripto → **0 en `market`, 0 en `fund_holdings`**
 (1.804.601 filas, 1.037 símbolos distintos, último reporte 2026-11-04, 0 sin resolver).
@@ -328,7 +338,7 @@ etapa por etapa.**
 | **2** | Qué reemplaza a `inst_score` y `fh_buy_ratio` | **CERRADA 2026-11-08 — nada lo reemplaza.** Las tres features de Señal quedan **NULL** para cripto y el modelo trabaja sin ellas (§ 4.4) | los 3 candidatos con historia medidos sobre los 12 pares y el año en curso: taker ratio **0,0104**, momentum **−0,052 a +0,013**, funding **−0,044**. Los 2 que faltan **no son medibles**: Binance sirve 31 días de long/short y el sentiment de CoinGecko es un valor puntual. Yahoo **no tiene ninguna clave de voto** para cripto |
 | **3** | Dos arreglos de una línea | **CERRADA 2026-11-08.** `POL-USD` → `POL28321-USD` en `convierte_ticket_crypto` (`Modulos_Utilitarios.py:468`); `audit_portfolio` enruta el ticker por esa función (`Class_Screener.py:2858`) | ambos verificados: `POL28321-USD` devuelve `circulatingSupply` 10.646.122.496, y en seco la función no modifica ninguno de los 38 símbolos en cartera en `market` (§ 4.1, § 4.3) |
 | **4** | Las filas | 12 de cartera primero, el top 50 después. `categoriaActivo` **`'C'`** para cripto — **no NULL**, ver la reversión en § 7 | **IMPLEMENTADA 2026-11-08 para los 12 de cartera**; el top 50 queda pendiente. El criterio escrito era doblemente inalcanzable: (a) `market.categoriaActivo` es **`char(4) NOT NULL`**, así que NULL nunca fue posible, y (b) con la etapa 1 cerrada un par persiste `consenso_suma` NULL, así que `load_consenso_features` solo lo devuelve por el `OR` de `inst_score`/`fh_buy_ratio`, que la etapa 2 dejó NULL a propósito. Lo verificable es que la fila exista en `market` con `categoriaActivo = 'C'` y que GainsCapture siga leyendo `inversion`. Segundo borde abierto: el método toma **una** `account` y el panel le pasa la de Stock, así que cripto (`B0000001`) no entra al dict aunque tenga fila |
-| **5** | Lo que ya se tira | persistir supply/marketCap del `info` de Yahoo y el taker-buy de las klines | 11 de 12 con supply, 12 de 12 con ratio, **sin descargas nuevas** |
+| **5** | Lo que ya se tira | **5a IMPLEMENTADA 2026-11-08** — el `info` de Yahoo del par se persiste en `market` (`shortName`, `regularMarketPrice`, `marketCap`, `volume`, `averageVolume`, 52w alto/bajo, `totalSupply`, `circulatingSupply`, `currency`). **5b DESCARTADA** — el taker-buy de las klines no se persiste, motivo en § 3 | **sin columnas nuevas y sin descargas nuevas**: el `info` ya estaba en memoria en `dividends_en_market_stock` y el supply se mapea sobre `sharesOutstanding`/`floatShares`, que es el mismo concepto de unidades existentes. Medido en vivo: BTC 10 de 10 campos, POL 10 de 10, **CHIPUSDT 0 de 10** (`quoteType` NONE) y **AIGENSYNUSDT 404**, que quedan **NULL, no 0** — una descarga vacía no degrada el dato. `volume` de cripto viene **en USD**, así que `_rotacion` tiene rama propia: divide por `marketCap`, no por el supply, con cortes `0,20 / 0,10 / 0,04` |
 | **6** | Sentimiento | mapa par→nombre (12 filas) + filtro de homónimos. Ver [[design-sentimiento]] pendiente #7 | el `EXISTS` contra `market` resuelve; "Polkadot" no trae noticias de wellness |
 | **7** | Reentrenar Buy | con las features de cripto poblando | capturar métricas **antes**: `modelo_buyv01_metrics.pkl` se sobreescribe en cada entrenamiento |
 
