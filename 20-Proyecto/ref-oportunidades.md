@@ -193,6 +193,45 @@ BD oportunidades (tipo='buy' / tipo='sell')
 
 ---
 
+### El mismo `hash_id` podia entrar varias veces al dataset (2026-11-10)
+
+`hash_id` **no es unico en la tabla** — `idx_hash_id` existe pero no es UNIQUE, asi que el
+`INSERT IGNORE` no tenia contra que colisionar. El fallback de `actualizar_oportunidad*` filtra
+`estado = 'pendiente'`, de modo que una fila ya `ejecutada` o `rechazada` queda **invisible**: el
+llamador lee "no existe" e inserta otra fila pendiente con el mismo hash.
+
+Medido sobre las 370 filas: **15 grupos duplicados** (13 buy, 2 sell). **Ninguna orden doble llego al
+broker** — `marcar_oportunidad` hace `UPDATE ... WHERE hash_id = %s` **sin LIMIT**, asi que aprobar o
+rechazar mueve el grupo entero; por eso 12 de los 15 traen estado y etiqueta identicos: es **una
+decision aplicada a varias filas**, no varias decisiones. El dano real era el **dataset de
+entrenamiento**: tras el filtro `recomendado in [1, -1]`, buy quedaba con **122 filas y 12
+excedentes (9,8%)** — FIRY pesaba 4x y UUUU 3x. Sell estaba limpio (125 filas, 125 hashes).
+
+Cerrado por los dos lados:
+
+- **Lectura** — `obtener_por_tipo` agrupa por `(hash_id, recomendado)`, no por `hash_id` solo. Con
+  `MAX(id)` sobre el hash solo ganaria la fila **mas nueva**, que en 3 grupos es la propuesta sin
+  cerrar (`recomendado` 0) y no el hecho consumado: se perdian VGSH rechazada, NOMD y PBR ejecutadas.
+  El filtro de `recomendado` lo aplica el consumidor, asi que el contrato no cambia —las pendientes
+  se siguen devolviendo. Buy pasa de 122 a **110** decididas; sell queda en **125**.
+- **Insert** — `ya_existe_hash()` corta `insertar_buy` / `insertar_sell` si el hash ya esta en
+  **cualquier** estado. Devuelve `True` / `False` / `None` en error de BD, y con `None` **tampoco
+  inserta**: ante la duda no se ensucia el dataset y la propuesta se re-evalua en el ciclo siguiente.
+
+**El indice UNIQUE queda descartado:** abortaria con 1062 el `UPDATE ... SET hash_id` de
+`actualizar_oportunidad*`, que reescribe el hash de las pendientes sin LIMIT — 3 grupos buy (AMT,
+BTI, CIG) tienen hoy dos pendientes bajo un mismo hash.
+
+**No bloquea la recurrencia legitima:** `fecha` entra en el hash, asi que otro dia da otro hash
+(FIRY sell 17 dias / 18 hashes; KHC buy 10 / 10). Es el reenvio diario anotado en § 1, que sigue
+vigente y es otro hecho.
+
+> ⚠️ **Punto de atencion — reentrenar Buy va despues de esto, no antes.** El dataset buy cambio de
+> 122 a 110 filas decididas, asi que las metricas del pkl vivo (`n_samples 111`) describen un
+> dataset que ya no existe.
+
+---
+
 ## 7. Archivos clave
 
 | Archivo | Rol |
