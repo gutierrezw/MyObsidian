@@ -280,6 +280,51 @@ Es la alternativa que la etapa 2 ya tenía anotada. Con la etapa 1 cerrada el hu
 > acciones con `floatShares`, la columna que hoy queda vacía en cripto. No es un voto de dirección
 > —es actividad, como el taker ratio— pero llena un hueco real sin cálculo propio ni descarga nueva.
 
+#### Reversión del 2026-11-09 — el "no medible" se volvió "medido en un solo régimen, y acumulándose"
+
+El veredicto **no medible** de la fila de long/short + open interest sigue siendo cierto por el motivo
+que decía: Binance sirve **31 días**, un solo régimen. Lo que cambió es que ahora **se guarda**
+(`2b02e5d`): tabla `crypto_positioning` con upsert por `(symbol, fecha)`, `Agente_CryptoPositioning`
+cada 24 h, y el backfill de los 31 días que el endpoint expone. **No se construyó para medir** —se
+construyó porque la **Señal Cripto** necesitaba un eje con signos mezclados entre pares, y la
+divergencia `ls_top_pos - ls_cuentas` es el único de los cinco candidatos que lo tiene.
+
+`senal_cripto()` (`AppValuations/consenso_score.py`) convierte esa divergencia en las mismas cadenas
+que `senal_consenso` y las persiste en `market.consenso_tag` / `consenso_suma`.
+
+Medido el 2026-11-10: **558 filas, 18 pares, 2026-10-09 → 2026-11-08** y **18 de los 19 pares de
+cartera con tag** (8 `↗ TENDENCIA`, 6 `→ NEUTRO`, 4 `↘ ALERTA`). El par sin dato es **FDUSDUSDT**:
+stablecoin contra stablecoin, Binance no lista perpetuo porque no hay nada que apalancar, así que
+queda NULL a propósito — y en una stablecoin la Señal sería ruido de todos modos, igual que la banda
+de 52 semanas.
+
+> **Lo que esta reversión deja abierto es un riesgo de lectura, no una tarea.** `consenso_tag` guarda
+> **la misma cadena** para Stock y para cripto: `↗ TENDENCIA` se ve idéntico en las dos pantallas.
+> Pero en Stock son 7 votos con historia y en cripto es **1 eje con 31 días de un solo régimen**, con
+> un umbral (`UMBRAL_DIVERGENCIA_CRIPTO = 0.50`) **que no está calibrado contra resultados**: sale de
+> 540 observaciones donde la |divergencia| es continua (p10 0,135 / p50 0,702 / p90 1,993) y los
+> cortes 0,40, 0,50 y 0,60 dan **los mismos 12 votantes de 18**. Si el modo autónomo llega a leer ese
+> tag sin la distinción, está operando un indicador técnico disfrazado de consenso — exactamente lo
+> que la § 1 existe para evitar.
+>
+> La verificación recién es posible a **mediados de 2027**, con 2-3 regímenes en la serie: ver si la
+> divergencia anticipa algo o es ruido como los otros cuatro candidatos. Si sale ruido, la Señal
+> Cripto se queda **sin su único voto** y hay que decidir si la ventana sigue existiendo. **Se retiró
+> del BACKLOG** (ítem 105, cerrado el 2026-11-10) porque una medición que no se puede tocar durante
+> seis meses no es trabajo pendiente: es esta nota.
+>
+> **Y la serie no se puede auditar desde la tabla.** `crypto_positioning` no tiene columna de
+> inserción —solo `fecha`, la del dato— y el upsert sobrescribe, así que **un mes sin corridas se ve
+> igual que un mes con el endpoint devolviendo lo mismo**. La única fuente de cuándo corrió el agente
+> es `agents_schedule.json`. Al 2026-11-10 el último dato es el 11-08 y **no es un hueco**: el agente
+> corrió el 11-09 a las 11:11 y esa corrida no trajo punto para el 09 — la serie va con **un día de
+> rezago**.
+
+**Lo que esta reversión NO cambia:** la decisión de que las tres features de Señal entren en `NULL`
+para cripto en el **modelo Buy** sigue en pie. `load_consenso_features` lee una sola cuenta —la de
+Stock—, así que los pares no entran. Si alguna vez se ensancha, hay que excluir `categoriaActivo='C'`
+o el `0` de un `→ NEUTRO` entraría como una Señal neutral **medida**.
+
 ---
 
 ## 5. Fuentes externas — qué aportan y qué no
