@@ -462,6 +462,25 @@ del día anterior.
 - ✅ fix `sync_splits` timezone: `pd.Timestamp(primera_compra).tz_localize(splits.index.tz)` cuando índice es tz-aware
 - ✅ `AppTest/run_diag_abev_yfinance.py` — script diagnóstico reproducción exacta de detalle_book
 
+**Cambio de enfoque 2026-11-10 (`48caceb`) — la cuarentena y la purga del hueco no quedaron como se cerraron
+acá.** Las líneas de arriba siguen describiendo lo que se implementó ese día; lo que cambió es el enfoque:
+
+- **Un hueco ya no se purga.** El `DELETE ... WHERE Date >= fecha` borraba hacia **adelante** desde una fila
+  **ausente**: en esa fecha no hay nada que borrar y se llevaba las posteriores, que son las buenas. Y la
+  condición del hueco exige una fila posterior, así que el borrado destruía la evidencia sin reparar nada y
+  el hueco volvía a detectarse a la hora siguiente. Lo único que regenera un hueco es el retroceso del
+  schedule.
+- **La cuarentena se evaluaba al final y sólo condicionaba el reset del schedule**, así que un símbolo
+  cuarentenado se seguía borrando y ya no se regeneraba: frenaba el rescate, no el daño. Hoy se evalúa
+  **antes** de purgar y bloquea la purga.
+- **El archivo `quarantine_symbols.json` no existe en disco** — el estado vive en la clave `quarantine` de
+  `cache_health`. `_QUARANTINE_TTL` era un local muerto.
+- **La cuarentena manufacturaba el hueco que el validador detectaba:** `detalle_book`
+  (`Modulos_Comunes.py:408`) saltea el símbolo cuarentenado, y ese salto **crea** la fila ausente.
+
+Daño medido antes del arreglo: **13 símbolos con la serie truncada** y `performa_inversion` vacía desde el
+**2026-11-03**. Reparado en la misma corrida.
+
 ### v2.4 — 2026-05-05
 **Booktrading monitor + corrección cantidades:**
 - 🐛 Root cause identificado y corregido: `insert_booktrading` leía `ustock` antes del commit → segundo insert del mismo símbolo/fecha quedaba con stock incorrecto
